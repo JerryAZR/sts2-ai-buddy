@@ -51,7 +51,8 @@ internal static class AutomationTick
                 Player? player = state.GetPlayer(phantom.NetId);
                 if (player != null)
                 {
-                    SafeDrive(() => EventDriver.Drive(player), phantom.NetId);
+                    SafeDrive(() => EventDriver.Drive(player, state), phantom.NetId);
+                    SafeDrive(() => MapDriver.Drive(player, state), phantom.NetId);
                 }
             }
         }
@@ -64,7 +65,8 @@ internal static class AutomationTick
             Player? me = LocalContext.GetMe(state);
             if (me != null)
             {
-                SafeDrive(() => EventDriver.Drive(me), me.NetId);
+                SafeDrive(() => EventDriver.Drive(me, state), me.NetId);
+                SafeDrive(() => MapDriver.Drive(me, state), me.NetId);
             }
         }
     }
@@ -103,6 +105,10 @@ internal static class AutomationTick
         }
         foreach (var ev in sync.Events)
         {
+            if (ev.IsFinished)
+            {
+                continue; // finished events linger until the next BeginEvent; not interesting
+            }
             Observability.EventLog.Write("wait", "event_state", new
             {
                 netId = ev.Owner.NetId,
