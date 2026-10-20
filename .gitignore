@@ -1,0 +1,17 @@
+# External reference material (cloned repos + decompiled game assemblies)
+refs/
+
+# Build output
+bin/
+obj/
+[Bb]uild/
+
+# IDE
+.idea/
+.vs/
+.vscode/
+*.user
+
+# OS
+Thumbs.db
+.DS_Store

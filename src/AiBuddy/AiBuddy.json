@@ -1,0 +1,12 @@
+{
+  "id": "AiBuddy",
+  "name": "AI Buddy",
+  "author": "Jerry",
+  "description": "Host-only AI companion players for co-op runs. Guests need no mods.",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false,
+  "min_game_version": "0.111.0"
+}
