@@ -66,5 +66,13 @@ internal static class LobbyPhantomPatch
                 break;
             }
         }
+
+        // Full automation: with the autopilot enabled, ready up the host too —
+        // BeginRunForAllPlayersIfAllReady embarks once every player is ready.
+        if (System.Environment.GetEnvironmentVariable("AIBUDDY_AUTOPLAY_LOCAL") == "1")
+        {
+            Log.Info("[AiBuddy] Autopilot: readying host, embarking.");
+            screen.Lobby.SetReady(true);
+        }
     }
 }
