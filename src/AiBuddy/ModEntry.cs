@@ -31,6 +31,8 @@ public static class ModEntry
         typeof(Patches.ChoiceFabricationPatch),
         typeof(Patches.CardPromptCapturePatches),
         typeof(Patches.PhantomSendGuardPatch),
+        typeof(Patches.PhantomEnemyTurnReadyPatch),
+        typeof(Patches.CombatActButtonPatch),
         typeof(Patches.AutomationTick),
     };
 
@@ -47,8 +49,9 @@ public static class ModEntry
         typeof(Phantom.PhantomLobbyService),
         typeof(Patches.CombatSyncPhantomPatch),
         typeof(Patches.PhantomActionEnqueuePatch),
-        typeof(Patches.ChoiceFabricationPatch),
+        typeof(Patches.PhantomEnemyTurnReadyPatch),
         typeof(Drivers.ChoiceDriver),
+        typeof(Drivers.CombatStateProbe),
         typeof(Drivers.EventDriver),
     };
 
@@ -65,6 +68,8 @@ public static class ModEntry
         "CardSelectCmd.FromChooseACardScreen",
         "CardSelectCmd.FromDeckGeneric",
         "CardSelectCmd.FromChooseABundleScreen",
+        "ReadyToBeginEnemyTurnAction.ExecuteAction",
+        "NCombatRoom._Ready",
     };
 
     public static void Initialize()

@@ -1,6 +1,8 @@
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Game;
 
@@ -40,5 +42,12 @@ internal static class WaitTracer
     private static void CombatSyncPlayerReceived(SyncPlayerDataMessage syncMessage, ulong senderId)
     {
         EventLog.Write("wait", "combat_sync_player_received", new { player = senderId });
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(ActionQueueSynchronizer), nameof(ActionQueueSynchronizer.SetCombatState))]
+    private static void CombatStateChanged(ActionSynchronizerCombatState combatState)
+    {
+        EventLog.Write("wait", "combat_state", new { state = combatState.ToString() });
     }
 }

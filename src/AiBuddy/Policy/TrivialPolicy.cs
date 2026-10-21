@@ -1,4 +1,6 @@
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Logging;
@@ -19,10 +21,10 @@ public static class TrivialPolicy
 {
     /// <summary>
     /// Relics whose obtain-flow opens a reward-set screen we can't fabricate yet (M2 subset carve-out).
-    /// Exhaustive for Neow as of v0.111.0: all 24 relic options audited; only these two call
-    /// RewardsCmd.OfferCustom from AfterObtained.
+    /// Empirically verified by NeowRelicTestDriver (the static audit missed NeowsBones/SmallCapsule):
+    /// all four hang awaiting the phantom's reward selection. M3 RewardsSet fabrication unblocks all four.
     /// </summary>
-    private static readonly HashSet<string> DeferredRewardRelics = new() { "LOST_COFFER", "KALEIDOSCOPE" };
+    private static readonly HashSet<string> DeferredRewardRelics = new() { "LOST_COFFER", "KALEIDOSCOPE", "NEOWS_BONES", "SMALL_CAPSULE" };
 
     /// <summary>
     /// First valid option. Valid = not locked, won't kill the player, not deferred.
@@ -50,6 +52,37 @@ public static class TrivialPolicy
 
     /// <summary>Index-choice prompts (choose-a-card, bundles): always take the first. Never skips in v1.</summary>
     public static int PickIndex(int optionCount) => 0;
+
+    /// <summary>
+    /// One combat action: first playable hand card, first hittable enemy when the
+    /// card targets one. Returns null when nothing is playable (caller ends turn).
+    /// </summary>
+    public static (CardModel card, Creature? target)? PickCombatAction(Player player)
+    {
+        PlayerCombatState? combat = player.PlayerCombatState;
+        if (combat == null)
+        {
+            return null;
+        }
+        foreach (CardModel card in combat.Hand.Cards)
+        {
+            if (!card.CanPlay())
+            {
+                continue;
+            }
+            if (card.TargetType == TargetType.AnyEnemy)
+            {
+                Creature? target = player.Creature.CombatState?.HittableEnemies.FirstOrDefault();
+                if (target == null || !card.CanPlayTargeting(target))
+                {
+                    continue;
+                }
+                return (card, target);
+            }
+            return (card, null);
+        }
+        return null;
+    }
 
     /// <summary>
     /// Multi-select prompts: the first MinSelect options (or none when cancelable

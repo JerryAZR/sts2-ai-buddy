@@ -37,6 +37,8 @@ public sealed class PhantomSession
     public Dictionary<ulong, Drivers.ChoiceDriver.PendingPrompt> PendingChoices { get; } = new();
     public Dictionary<ulong, MapCoord> InFlightVotes { get; } = new();
     public HashSet<EventModel> ProceededEvents { get; } = new();
+    /// <summary>NetId → combat turn number for which the host armed the phantom to act (the "Buddy: act" button).</summary>
+    public Dictionary<ulong, int> ArmedPhantoms { get; } = new();
 
     private PhantomSession(INetGameService? netService) => _netService = netService;
 

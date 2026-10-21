@@ -21,6 +21,7 @@ internal static class AutomationTick
 {
     private const double IntervalSeconds = 0.5;
     private static double _accumulator;
+    private static int _tickCount;
     private static readonly bool AutoplayLocal =
         System.Environment.GetEnvironmentVariable("AIBUDDY_AUTOPLAY_LOCAL") == "1";
 
@@ -70,6 +71,7 @@ internal static class AutomationTick
                 {
                     SafeDrive("EventDriver", () => EventDriver.Drive(player, state));
                     SafeDrive("MapDriver", () => MapDriver.Drive(player, state));
+                    SafeDrive("CombatDriver", () => CombatDriver.Drive(player, state));
                 }
             }
         }
@@ -77,12 +79,31 @@ internal static class AutomationTick
         if (AutoplayLocal)
         {
             EnsureLocalSelector();
+            OverlayDrainDriver.Tick();
             Player? me = LocalContext.GetMe(state);
             if (me != null)
             {
                 SafeDrive("EventDriver(local)", () => EventDriver.Drive(me, state));
                 SafeDrive("MapDriver(local)", () => MapDriver.Drive(me, state));
+                SafeDrive("CombatDriver(local)", () => CombatDriver.DriveAutoplay(me, state));
             }
+        }
+
+        NeowRelicTestDriver.Tick(state);
+
+        // Heartbeat every 10s so a silent tick is distinguishable from a quiet game.
+        if (++_tickCount % 20 == 0)
+        {
+            Observability.EventLog.Write("wait", "tick_heartbeat", new
+            {
+                tick = _tickCount,
+                combatState = run.ActionQueueSynchronizer.CombatState.ToString(),
+                netType = run.NetService.Type.ToString(),
+                phantoms = PhantomSession.Current?.Phantoms.Count ?? -1,
+                playersInState = state.Players.Count,
+                phantomPlayersResolved = PhantomSession.Current?.Phantoms
+                    .Count(p => state.GetPlayer(p.NetId) != null) ?? -1,
+            });
         }
 
         TraceEventStates(run);
