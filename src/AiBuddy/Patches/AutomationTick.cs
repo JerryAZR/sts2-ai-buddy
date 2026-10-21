@@ -4,6 +4,7 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Runs;
@@ -23,7 +24,23 @@ internal static class AutomationTick
     private static readonly bool AutoplayLocal =
         System.Environment.GetEnvironmentVariable("AIBUDDY_AUTOPLAY_LOCAL") == "1";
 
+    // Driver errors are escalated to the game log once per distinct failure —
+    // catching is required (never throw out of _Process), but silence hides stalls.
+    private static readonly HashSet<string> _reportedErrors = new();
+
     private static void Postfix(double delta)
+    {
+        try
+        {
+            Tick(delta);
+        }
+        catch (Exception ex)
+        {
+            ReportError("tick", ex);
+        }
+    }
+
+    private static void Tick(double delta)
     {
         _accumulator += delta;
         if (_accumulator < IntervalSeconds)
@@ -44,20 +61,18 @@ internal static class AutomationTick
         }
 
         // Phantom drivers run on the host only.
-        if (run.NetService.Type == NetGameType.Host)
+        if (run.NetService.Type == NetGameType.Host && PhantomSession.Current is { } session)
         {
-            foreach (PhantomDescriptor phantom in PhantomRegistry.All)
+            foreach (PhantomDescriptor phantom in session.Phantoms)
             {
                 Player? player = state.GetPlayer(phantom.NetId);
                 if (player != null)
                 {
-                    SafeDrive(() => EventDriver.Drive(player, state), phantom.NetId);
-                    SafeDrive(() => MapDriver.Drive(player, state), phantom.NetId);
+                    SafeDrive("EventDriver", () => EventDriver.Drive(player, state));
+                    SafeDrive("MapDriver", () => MapDriver.Drive(player, state));
                 }
             }
         }
-
-        TraceEventStates(run);
 
         if (AutoplayLocal)
         {
@@ -65,9 +80,33 @@ internal static class AutomationTick
             Player? me = LocalContext.GetMe(state);
             if (me != null)
             {
-                SafeDrive(() => EventDriver.Drive(me, state), me.NetId);
-                SafeDrive(() => MapDriver.Drive(me, state), me.NetId);
+                SafeDrive("EventDriver(local)", () => EventDriver.Drive(me, state));
+                SafeDrive("MapDriver(local)", () => MapDriver.Drive(me, state));
             }
+        }
+
+        TraceEventStates(run);
+    }
+
+    private static void SafeDrive(string driverName, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            ReportError(driverName, ex);
+        }
+    }
+
+    private static void ReportError(string source, Exception ex)
+    {
+        Observability.EventLog.Write("mod", "driver_error", new { source, error = ex.Message });
+        string key = $"{source}|{ex.GetType().Name}|{ex.Message}";
+        if (_reportedErrors.Add(key))
+        {
+            Log.Warn($"[AiBuddy] Driver '{source}' failed: {ex.GetType().Name}: {ex.Message} (further identical errors suppressed)");
         }
     }
 
@@ -80,18 +119,6 @@ internal static class AutomationTick
         if (CardSelectCmd.LocalSelector == null)
         {
             CardSelectCmd.UseSelector(new AutoplayCardSelector(), localOnly: true);
-        }
-    }
-
-    private static void SafeDrive(Action action, ulong? netId)
-    {
-        try
-        {
-            action();
-        }
-        catch (Exception ex)
-        {
-            Observability.EventLog.Write("mod", "driver_error", new { netId, error = ex.Message });
         }
     }
 

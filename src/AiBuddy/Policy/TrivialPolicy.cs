@@ -1,6 +1,10 @@
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Logging;
+using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace AiBuddy.Policy;
 
@@ -8,6 +12,8 @@ namespace AiBuddy.Policy;
 /// v1 trivial policy: pure decision functions over game state. Shared by phantom
 /// drivers and the debug local-player autopilot. This is the seam where a real
 /// brain (heuristic or LLM) plugs in later — decisions only, never actuation.
+/// Drivers re-validate every returned choice before actuating it (the brain is
+/// untrusted, per design §3.5).
 /// </summary>
 public static class TrivialPolicy
 {
@@ -46,16 +52,40 @@ public static class TrivialPolicy
     public static int PickIndex(int optionCount) => 0;
 
     /// <summary>
-    /// Multi-select prompts: take the first MinSelect options (or none when cancelable
-    /// with no minimum). Dumb but always mechanically safe.
+    /// Multi-select prompts: the first MinSelect options (or none when cancelable
+    /// with no minimum). Returns null when the constraints are unsatisfiable —
+    /// fabricating a short selection would send a result the game considers invalid,
+    /// so the driver must skip fabrication and log instead.
     /// </summary>
-    public static List<int> PickIndexes(int optionCount, int minSelect, int maxSelect, bool cancelable)
+    public static List<int>? PickIndexes(int optionCount, int minSelect, int maxSelect, bool cancelable)
     {
+        if (optionCount < minSelect)
+        {
+            return null; // unsatisfiable — refuse rather than emit an invalid selection
+        }
         if (cancelable && minSelect == 0)
         {
             return new List<int>();
         }
         int count = Math.Clamp(Math.Max(minSelect, 1), 0, Math.Min(maxSelect, optionCount));
         return Enumerable.Range(0, count).ToList();
+    }
+
+    /// <summary>
+    /// Map votes. Locked design decision: phantoms mirror the host player's vote
+    /// (abstention risks stalling the lobby). Local autopilot takes the first child
+    /// of the current coord (first row-0 point at run start).
+    /// </summary>
+    public static MapCoord? PickMapDestination(RunState state, Player player, MapCoord? hostVote)
+    {
+        if (!LocalContext.IsMe(player))
+        {
+            return hostVote;
+        }
+        if (state.CurrentMapCoord is MapCoord current)
+        {
+            return state.Map.GetPoint(current)?.Children.FirstOrDefault()?.coord;
+        }
+        return state.Map.GetPointsInRow(0).FirstOrDefault()?.coord;
     }
 }

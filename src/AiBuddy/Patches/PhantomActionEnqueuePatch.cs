@@ -30,7 +30,7 @@ internal static class PhantomActionEnqueuePatch
 
     private static bool Prefix(ActionQueueSynchronizer __instance, GameAction action, INetGameService ____netService)
     {
-        if (____netService.Type != NetGameType.Host || !PhantomRegistry.IsPhantom(action.OwnerId))
+        if (____netService.Type != NetGameType.Host || PhantomSession.Current?.IsPhantom(action.OwnerId) != true)
         {
             return true;
         }

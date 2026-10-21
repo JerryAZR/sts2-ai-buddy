@@ -16,6 +16,8 @@ namespace AiBuddy.Phantom;
 /// </summary>
 public static class PhantomLobbyService
 {
+    public enum AddResult { Added, LobbyFull, InjectionFailed }
+
     private static readonly FieldInfo MaxPlayersField =
         typeof(StartRunLobby).GetField("_maxPlayers", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingFieldException("StartRunLobby._maxPlayers");
@@ -28,18 +30,19 @@ public static class PhantomLobbyService
         typeof(StartRunLobby).GetMethod("UpdateMaxMultiplayerAscension", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("StartRunLobby.UpdateMaxMultiplayerAscension");
 
-    /// <summary>Add one phantom to the lobby. Returns null (and logs) if the lobby is full.</summary>
-    public static PhantomDescriptor? AddPhantom(StartRunLobby lobby)
+    /// <summary>Add one phantom to the lobby.</summary>
+    public static (AddResult result, PhantomDescriptor? phantom) AddPhantom(StartRunLobby lobby, PhantomSession session)
     {
         int maxPlayers = (int)MaxPlayersField.GetValue(lobby)!;
         if (lobby.Players.Count >= maxPlayers)
         {
             Log.Info($"[AiBuddy] Lobby full ({lobby.Players.Count}/{maxPlayers}); not adding phantom.");
             Observability.EventLog.Write("mod", "phantom_add_rejected_full", new { players = lobby.Players.Count, maxPlayers });
-            return null;
+            return (AddResult.LobbyFull, null);
         }
 
-        ulong netId = PhantomRegistry.AllocateNextId();
+        // Probe allocation first; register only after the lobby accepts the player.
+        ulong netId = session.PeekNextId();
         string displayName = $"Buddy {netId}";
 
         // Phantom mirrors the host's unlock state / ascension / moddedness so
@@ -53,18 +56,18 @@ public static class PhantomLobbyService
         if (added == null)
         {
             Log.Warn($"[AiBuddy] TryAddPlayerInFirstAvailableSlot returned null for phantom {netId}.");
-            return null;
+            return (AddResult.InjectionFailed, null);
         }
 
         StartRunLobbyPlayer player = added.Value;
-        PhantomRegistry.Register(netId, displayName);
+        PhantomDescriptor descriptor = session.RegisterPhantom(displayName, netId);
 
         // Notify the lobby UI exactly as a real join would.
         lobby.LobbyListener.PlayerConnected(player);
         UpdateMaxAscension.Invoke(lobby, null);
 
         // Phantoms join already ready (control layer owns mechanical confirmations).
-        int index = lobby.Players.FindIndex(p => p.id == netId);
+        int index = lobby.Players.FindIndex(p => p.id == descriptor.NetId);
         if (index >= 0)
         {
             StartRunLobbyPlayer ready = lobby.Players[index];
@@ -76,18 +79,19 @@ public static class PhantomLobbyService
         // Tell any connected guests. Broadcast fans out to connected peers only,
         // so this is a safe no-op in a host-only loopback session.
         // KNOWN GAP (M7): sender id on these is the host's, not the phantom's —
-        // forged-sender sends land with the Steam transport work.
+        // forged-sender sends land with the Steam transport work. The ready message
+        // carries no player id, so guests would misread it as the HOST re-readying.
         lobby.NetService.SendMessage(new PlayerJoinedMessage { lobbyPlayer = player });
         lobby.NetService.SendMessage(new LobbyPlayerSetReadyMessage { ready = true });
 
         Observability.EventLog.Write("mod", "phantom_added", new
         {
-            netId,
-            displayName,
+            netId = descriptor.NetId,
+            descriptor.DisplayName,
             slotId = player.slotId,
             character = player.character?.Id.ToString(),
         });
-        Log.Info($"[AiBuddy] Added phantom '{displayName}' (NetId {netId}, slot {player.slotId}).");
-        return new PhantomDescriptor(netId, displayName);
+        Log.Info($"[AiBuddy] Added phantom '{descriptor.DisplayName}' (NetId {descriptor.NetId}, slot {player.slotId}).");
+        return (AddResult.Added, descriptor);
     }
 }

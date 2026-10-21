@@ -1,9 +1,10 @@
-using AiBuddy.Policy;
 using System.Reflection;
-
+using AiBuddy.Phantom;
+using AiBuddy.Policy;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
@@ -23,8 +24,6 @@ public static class EventDriver
     private static readonly MethodInfo ChooseOptionForEvent =
         typeof(EventSynchronizer).GetMethod("ChooseOptionForEvent", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("EventSynchronizer.ChooseOptionForEvent");
-
-    private static readonly HashSet<EventModel> _proceededFor = new();
 
     /// <summary>Drive the given player's current event one step, if there is a stable page with a valid option.</summary>
     public static void Drive(Player player, RunState state)
@@ -48,7 +47,8 @@ public static class EventDriver
             // and re-proceeding from a stale event force-opens the map mid-room.
             if (LocalContext.IsMe(player)
                 && state.CurrentRoom is EventRoom
-                && _proceededFor.Add(ev))
+                && PhantomSession.Current != null
+                && PhantomSession.Current.ProceededEvents.Add(ev))
             {
                 Observability.EventLog.Write("mod", "autopilot_event_proceed", new { eventId = ev.Id.Entry });
                 TaskHelper.RunSafely(NEventRoom.Proceed());
@@ -63,6 +63,13 @@ public static class EventDriver
         }
         if (TrivialPolicy.PickEventOption(ev) is not int index)
         {
+            return;
+        }
+        // Brain boundary: re-validate the policy's choice before actuating it.
+        if (index < 0 || index >= ev.CurrentOptions.Count || ev.CurrentOptions[index].IsLocked)
+        {
+            Log.Warn($"[AiBuddy] Policy returned invalid event option index {index} for {ev.Id} ({ev.CurrentOptions.Count} options); refusing to actuate.");
+            Observability.EventLog.Write("mod", "policy_output_rejected", new { eventId = ev.Id.Entry, index });
             return;
         }
 

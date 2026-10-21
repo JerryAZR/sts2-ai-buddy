@@ -25,62 +25,78 @@ public static class ChoiceDriver
 
     public sealed record PendingPrompt(PromptKind Kind, IReadOnlyList<CardModel> Options, int MinSelect, int MaxSelect, bool Cancelable);
 
-    /// <summary>Captured prompt context per phantom NetId. FIFO intent: one outstanding prompt per player.</summary>
-    private static readonly Dictionary<ulong, PendingPrompt> _pending = new();
-
     private static readonly MethodInfo OnReceivePlayerChoice =
         typeof(PlayerChoiceSynchronizer).GetMethod("OnReceivePlayerChoice", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("PlayerChoiceSynchronizer.OnReceivePlayerChoice");
 
+    /// <summary>Capture prompt context for a phantom. Overwriting an unconsumed prompt means the one-outstanding-prompt invariant broke — loud, never silent.</summary>
     public static void Capture(ulong netId, PendingPrompt prompt)
     {
-        if (!PhantomRegistry.IsPhantom(netId))
+        if (PhantomSession.Current is not { } session || !session.IsPhantom(netId))
         {
             return;
         }
-        _pending[netId] = prompt;
+        if (session.PendingChoices.TryGetValue(netId, out PendingPrompt? unconsumed))
+        {
+            Log.Warn($"[AiBuddy] Phantom {netId} got a second {prompt.Kind} prompt while {unconsumed.Kind} was still unconsumed — invariant broken?");
+            Observability.EventLog.Write("mod", "choice_prompt_overwritten", new { netId, previous = unconsumed.Kind.ToString() });
+        }
+        session.PendingChoices[netId] = prompt;
         Observability.EventLog.Write("mod", "choice_prompt_captured", new { netId, kind = prompt.Kind.ToString(), options = prompt.Options.Count });
     }
 
     /// <summary>
     /// Called before WaitForRemoteChoice for a phantom: fabricates the result so the
-    /// wait finds it already received. Returns false if there was nothing to fabricate.
+    /// wait finds it already received.
     /// </summary>
-    public static bool FabricateChoice(PlayerChoiceSynchronizer synchronizer, Player player, uint choiceId)
+    public static void FabricateChoice(PlayerChoiceSynchronizer synchronizer, Player player, uint choiceId)
     {
-        if (!PhantomRegistry.IsPhantom(player.NetId))
+        if (PhantomSession.Current is not { } session || !session.IsPhantom(player.NetId))
         {
-            return false;
+            return;
         }
 
-        PlayerChoiceResult result;
-        if (_pending.Remove(player.NetId, out PendingPrompt? prompt))
+        PlayerChoiceResult? result = null;
+        if (session.PendingChoices.Remove(player.NetId, out PendingPrompt? prompt))
         {
             result = prompt.Kind switch
             {
                 PromptKind.Index => PlayerChoiceResult.FromIndex(TrivialPolicy.PickIndex(prompt.Options.Count)),
-                PromptKind.Indexes => PlayerChoiceResult.FromIndexes(
-                    TrivialPolicy.PickIndexes(prompt.Options.Count, prompt.MinSelect, prompt.MaxSelect, prompt.Cancelable)),
-                PromptKind.CombatCards => PlayerChoiceResult.FromMutableCombatCards(
-                    TrivialPolicy.PickIndexes(prompt.Options.Count, prompt.MinSelect, prompt.MaxSelect, prompt.Cancelable)
-                        .Select(i => prompt.Options[i])),
-                PromptKind.DeckCards => PlayerChoiceResult.FromMutableDeckCards(
-                    TrivialPolicy.PickIndexes(prompt.Options.Count, prompt.MinSelect, prompt.MaxSelect, prompt.Cancelable)
-                        .Select(i => prompt.Options[i])),
+                PromptKind.Indexes => FromIndexes(prompt),
+                PromptKind.CombatCards => PickCards(prompt) is { } combatCards
+                    ? PlayerChoiceResult.FromMutableCombatCards(combatCards) : null,
+                PromptKind.DeckCards => PickCards(prompt) is { } deckCards
+                    ? PlayerChoiceResult.FromMutableDeckCards(deckCards) : null,
                 _ => throw new ArgumentOutOfRangeException(),
             };
         }
         else
         {
-            // A choice we don't have a capture for (non-card prompts, e.g. player picking).
-            // KitLib precedent: default to index 0, loudly — the wait tracer will surface hangs.
+            // A choice we have no capture for (non-card prompts, e.g. player picking).
+            // KitLib precedent: default to index 0, loudly — the wait tracer surfaces hangs.
             Log.Warn($"[AiBuddy] Fabricating blind index-0 choice for phantom {player.NetId} (choiceId {choiceId}) — no prompt captured.");
             result = PlayerChoiceResult.FromIndex(0);
+        }
+
+        if (result == null)
+        {
+            // Policy refused (unsatisfiable constraints). Do NOT fabricate an invalid
+            // result; leave the wait pending and make noise so the stall is diagnosable.
+            Log.Warn($"[AiBuddy] No valid fabrication for phantom {player.NetId} choice {choiceId}; leaving pending.");
+            Observability.EventLog.Write("mod", "choice_fabrication_refused", new { netId = player.NetId, choiceId });
+            return;
         }
 
         Observability.EventLog.Write("mod", "choice_fabricated", new { netId = player.NetId, choiceId, result = result.ToString() });
         OnReceivePlayerChoice.Invoke(synchronizer, new object[] { player, choiceId, result.ToNetData() });
         // TODO(M7): broadcast forged-sender PlayerChoiceMessage so guests resolve their waiters too.
-        return true;
     }
+
+    private static PlayerChoiceResult? FromIndexes(PendingPrompt prompt)
+        => TrivialPolicy.PickIndexes(prompt.Options.Count, prompt.MinSelect, prompt.MaxSelect, prompt.Cancelable)
+            is { } indexes ? PlayerChoiceResult.FromIndexes(indexes) : null;
+
+    private static IEnumerable<CardModel>? PickCards(PendingPrompt prompt)
+        => TrivialPolicy.PickIndexes(prompt.Options.Count, prompt.MinSelect, prompt.MaxSelect, prompt.Cancelable)
+            ?.Select(i => prompt.Options[i]);
 }

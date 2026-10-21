@@ -41,14 +41,14 @@ internal static class CombatSyncPhantomPatch
 
     private static void Postfix(CombatStateSynchronizer __instance, INetGameService ____netService)
     {
-        if (____netService.Type != NetGameType.Host || __instance.IsDisabled || PhantomRegistry.All.Count == 0)
+        if (____netService.Type != NetGameType.Host || __instance.IsDisabled || PhantomSession.Current is not { } session)
         {
             return;
         }
         var syncData = (Dictionary<ulong, SerializablePlayer>)SyncDataField.GetValue(__instance)!;
         var runState = (RunState)RunStateField.GetValue(__instance)!;
 
-        foreach (PhantomDescriptor phantom in PhantomRegistry.All)
+        foreach (PhantomDescriptor phantom in session.Phantoms)
         {
             Player? player = runState.GetPlayer(phantom.NetId);
             if (player == null)

@@ -16,9 +16,10 @@ public sealed class AutoplayCardSelector : ICardSelector
     public Task<IEnumerable<CardModel>> GetSelectedCards(IEnumerable<CardModel> options, int minSelect, int maxSelect)
     {
         List<CardModel> list = options.ToList();
-        int count = Math.Clamp(Math.Max(minSelect, 1), 0, Math.Min(maxSelect, list.Count));
-        IEnumerable<CardModel> selected = list.Take(count);
-        Observability.EventLog.Write("mod", "autopilot_card_select", new { options = list.Count, count });
+        // Shared policy; on refusal (unsatisfiable), pick nothing rather than emit an invalid selection.
+        List<int> picked = Policy.TrivialPolicy.PickIndexes(list.Count, minSelect, maxSelect, cancelable: false) ?? new List<int>();
+        IEnumerable<CardModel> selected = picked.Select(i => list[i]).ToList();
+        Observability.EventLog.Write("mod", "autopilot_card_select", new { options = list.Count, picked.Count });
         return Task.FromResult(selected);
     }
 

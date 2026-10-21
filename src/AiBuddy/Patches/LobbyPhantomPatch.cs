@@ -19,10 +19,10 @@ internal static class LobbyPhantomPatch
 
     private static void Postfix(NCharacterSelectScreen __instance)
     {
-        // A fresh lobby means a fresh phantom set.
-        PhantomRegistry.Clear();
+        // A fresh lobby means a fresh session — all phantom state resets by construction.
+        PhantomSession session = PhantomSession.StartNew(__instance.Lobby.NetService);
         AttachButton(__instance);
-        AutoAddFromEnvironment(__instance);
+        AutoAddFromEnvironment(__instance, session);
     }
 
     private static void AttachButton(NCharacterSelectScreen screen)
@@ -41,8 +41,12 @@ internal static class LobbyPhantomPatch
         };
         button.Pressed += () =>
         {
-            PhantomDescriptor? phantom = PhantomLobbyService.AddPhantom(screen.Lobby);
-            if (phantom == null)
+            if (PhantomSession.Current is not { } session)
+            {
+                return;
+            }
+            (PhantomLobbyService.AddResult result, _) = PhantomLobbyService.AddPhantom(screen.Lobby, session);
+            if (result == PhantomLobbyService.AddResult.LobbyFull)
             {
                 button.Text = "Lobby full";
                 button.Disabled = true;
@@ -51,7 +55,7 @@ internal static class LobbyPhantomPatch
         screen.AddChild(button);
     }
 
-    private static void AutoAddFromEnvironment(NCharacterSelectScreen screen)
+    private static void AutoAddFromEnvironment(NCharacterSelectScreen screen, PhantomSession session)
     {
         string? raw = System.Environment.GetEnvironmentVariable("AIBUDDY_AUTO_PHANTOMS");
         if (!int.TryParse(raw, out int count) || count <= 0)
@@ -61,7 +65,7 @@ internal static class LobbyPhantomPatch
         Log.Info($"[AiBuddy] AIBUDDY_AUTO_PHANTOMS={count}: auto-adding phantoms for integration testing.");
         for (int i = 0; i < count; i++)
         {
-            if (PhantomLobbyService.AddPhantom(screen.Lobby) == null)
+            if (PhantomLobbyService.AddPhantom(screen.Lobby, session).result != PhantomLobbyService.AddResult.Added)
             {
                 break;
             }
