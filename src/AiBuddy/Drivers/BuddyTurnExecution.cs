@@ -1,8 +1,12 @@
 using AiBuddy.Policy;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.Models;
 
 namespace AiBuddy.Drivers;
+
+/// <summary>A brain intent resolved to engine objects by the control layer (validated).</summary>
+public sealed record ResolvedPlay(CardModel Card, Creature? Target);
 
 /// <summary>
 /// Per-player, per-turn plan-execution state (design: plan-then-drain). The driver
@@ -13,9 +17,10 @@ namespace AiBuddy.Drivers;
 /// </summary>
 public sealed class BuddyTurnExecution
 {
-    public Queue<PlannedPlay> Pending { get; } = new();
+    public Queue<ResolvedPlay> Pending { get; } = new();
     public List<PlayOutcome> Outcomes { get; } = new();
-    public HashSet<CardModel> Rejected { get; } = new();
+    /// <summary>Card ids the engine refused this turn — the executor refuses to enqueue them again.</summary>
+    public HashSet<string> Rejected { get; } = new();
 
     /// <summary>The one play currently in the engine's queue (never more than one — settle-gated).</summary>
     public PlayCardAction? InFlight;

@@ -61,7 +61,11 @@ public static class EventDriver
         {
             return;
         }
-        if (TrivialPolicy.PickEventOption(ev) is not int index)
+        // Build the detached view (control layer evaluates WillKill delegates host-side);
+        // the brain sees plain data only.
+        var view = new EventView(ev.Id.Entry, ev.CurrentOptions.Select((o, i) =>
+            new EventOptionView(i, o.IsLocked, o.WillKillPlayer?.Invoke(ev.Owner) == true, o.Relic?.Id.Entry)).ToList());
+        if (TrivialPolicy.PickEventOption(view) is not int index)
         {
             return;
         }

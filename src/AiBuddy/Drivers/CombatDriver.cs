@@ -1,6 +1,7 @@
 using AiBuddy.Phantom;
 using AiBuddy.Policy;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions;
@@ -202,7 +203,7 @@ public static class CombatDriver
             if (!success)
             {
                 reason = DiagnoseRejection(exec);
-                exec.Rejected.Add(card);
+                exec.Rejected.Add(card.Id.Entry);
                 if (exec.Pending.Count > 0)
                 {
                     // Kill-chain: the world diverged from the batch's planning assumptions.
@@ -210,7 +211,7 @@ public static class CombatDriver
                     exec.Pending.Clear();
                 }
             }
-            exec.Outcomes.Add(new PlayOutcome(card, success, reason));
+            exec.Outcomes.Add(new PlayOutcome(card.Id.Entry, success, reason));
             Observability.EventLog.Write("mod", "play_outcome", new { netId = player.NetId, card = card.Id.Entry, success, reason });
             exec.ClearInFlight();
         }
@@ -218,8 +219,8 @@ public static class CombatDriver
         // Feed the next planned play.
         if (exec.Pending.Count > 0)
         {
-            PlannedPlay play = exec.Pending.Dequeue();
-            if (exec.Rejected.Contains(play.Card))
+            ResolvedPlay play = exec.Pending.Dequeue();
+            if (exec.Rejected.Contains(play.Card.Id.Entry))
             {
                 Log.Warn($"[AiBuddy] Brain re-proposed rejected card {play.Card.Id.Entry} for {player.NetId} — refusing (brain contract violation).");
                 Observability.EventLog.Write("mod", "brain_contract_violation", new { netId = player.NetId, card = play.Card.Id.Entry });
@@ -232,25 +233,17 @@ public static class CombatDriver
             }
         }
 
-        // Batch done (or none): hand fresh state + outcomes back to the brain.
-        BuddyIntent intent = TrivialPolicy.PlanTurnIntent(new BuddyTurnView(player, exec.Rejected, exec.Outcomes));
+        // Batch done (or none): build the detached view and hand it to the brain.
+        BuddyIntent intent = TrivialPolicy.PlanTurnIntent(BuildCombatView(player, exec));
         exec.Outcomes.Clear(); // consumed by the brain
-        if (intent is EndTurnIntent)
-        {
-            Enqueue(new EndPlayerTurnAction(player, player.PlayerCombatState!.TurnNumber));
-            return true;
-        }
         if (intent is PlayBatch batch)
         {
-            foreach (PlannedPlay play in batch.Plays)
+            foreach (PlannedPlay planned in batch.Plays)
             {
-                if (exec.Rejected.Contains(play.Card))
+                if (ResolvePlay(player, planned, exec) is { } resolved)
                 {
-                    Log.Warn($"[AiBuddy] Brain proposed rejected card {play.Card.Id.Entry} for {player.NetId} — refusing (brain contract violation).");
-                    Observability.EventLog.Write("mod", "brain_contract_violation", new { netId = player.NetId, card = play.Card.Id.Entry });
-                    continue;
+                    exec.Pending.Enqueue(resolved);
                 }
-                exec.Pending.Enqueue(play);
             }
             if (exec.Pending.Count > 0)
             {
@@ -258,12 +251,96 @@ public static class CombatDriver
                 return false;
             }
         }
-        // Brain proposed nothing playable → end the turn.
+        // Brain proposed nothing playable (or nothing resolvable) → end the turn.
         Enqueue(new EndPlayerTurnAction(player, player.PlayerCombatState!.TurnNumber));
         return true;
     }
 
-    private static void EnqueuePlay(Player player, BuddyTurnExecution exec, PlannedPlay play)
+    /// <summary>
+    /// Builds the detached combat view (see BuddyBrain.cs): legality is computed
+    /// HERE (the control layer), the brain only sequences and spends.
+    /// </summary>
+    private static CombatView BuildCombatView(Player player, BuddyTurnExecution exec)
+    {
+        PlayerCombatState combat = player.PlayerCombatState!;
+        var hand = combat.Hand.Cards;
+        var cards = new List<CombatCardView>(hand.Count);
+        for (int i = 0; i < hand.Count; i++)
+        {
+            CardModel card = hand[i];
+            // Intrinsic playability (keywords, hooks, card logic); energy is the brain's budget concern.
+            bool intrinsic = card.CanPlay(out UnplayableReason reason, out _) || reason == UnplayableReason.EnergyCostTooHigh;
+            int cost = card.EnergyCost.CostsX ? combat.Energy : card.EnergyCost.GetResolved();
+            cards.Add(new CombatCardView(i, card.Id.Entry, cost, card.EnergyCost.CostsX, intrinsic, card.TargetType, LegalTargets(card, player)));
+        }
+        var combatState = player.Creature.CombatState;
+        var creatures = combatState?.Creatures.Select(c => new CreatureView(
+            c.CombatId, c.Monster == null, player.RunState.Players.FirstOrDefault(p => p.Creature == c)?.NetId,
+            c.CurrentHp, c.MaxHp, c.Block, c.IsDead,
+            combatState.HittableEnemies.Contains(c), c.Monster?.IntendsToAttack ?? false)).ToList()
+            ?? new List<CreatureView>();
+        return new CombatView(combat.Energy, player.NetId, cards, creatures, exec.Rejected, exec.Outcomes.ToList());
+    }
+
+    /// <summary>Legal targets per target kind, precomputed for the view (ally cards included).</summary>
+    private static IReadOnlyList<uint?> LegalTargets(CardModel card, Player player)
+        => card.TargetType switch
+        {
+            TargetType.AnyEnemy => player.Creature.CombatState?.HittableEnemies
+                .Where(e => card.CanPlayTargeting(e)).Select(e => e.CombatId).ToList() ?? new List<uint?>(),
+            TargetType.AnyAlly => player.RunState.Players
+                .Where(p => p != player && !p.Creature.IsDead).Select(p => p.Creature)
+                .Where(c => card.CanPlayTargeting(c)).Select(c => c.CombatId).ToList(),
+            TargetType.AnyPlayer => player.RunState.Players
+                .Where(p => !p.Creature.IsDead).Select(p => p.Creature)
+                .Where(c => card.CanPlayTargeting(c)).Select(c => c.CombatId).ToList(),
+            _ => [],
+        };
+
+    /// <summary>
+    /// Resolves and validates a brain intent against live state: hand index in range,
+    /// card id matches, not in the rejected set, target present and legal when the
+    /// card requires one. Any mismatch is a brain contract violation — refused + logged.
+    /// </summary>
+    private static ResolvedPlay? ResolvePlay(Player player, PlannedPlay play, BuddyTurnExecution exec)
+    {
+        string? violation = null;
+        var hand = player.PlayerCombatState?.Hand.Cards;
+        CardModel? card = null;
+        Creature? target = null;
+        if (hand == null || play.HandIndex < 0 || play.HandIndex >= hand.Count)
+        {
+            violation = $"hand index {play.HandIndex} out of range ({hand?.Count ?? 0})";
+        }
+        else if ((card = hand[play.HandIndex]).Id.Entry != play.CardId)
+        {
+            violation = $"card id mismatch: intent={play.CardId} hand={card.Id.Entry}";
+        }
+        else if (exec.Rejected.Contains(play.CardId))
+        {
+            violation = "card in rejected set";
+        }
+        else if (card.TargetType is TargetType.AnyEnemy or TargetType.AnyAlly or TargetType.AnyPlayer)
+        {
+            if (play.TargetCombatId is not uint targetId)
+            {
+                violation = "targeted card without target";
+            }
+            else if ((target = player.Creature.CombatState?.GetCreature(targetId)) == null || !card.CanPlayTargeting(target))
+            {
+                violation = $"invalid target {targetId}";
+            }
+        }
+        if (violation != null || card == null)
+        {
+            Log.Warn($"[AiBuddy] Brain intent for {player.NetId} refused: {play.CardId}[{play.HandIndex}] — {violation}.");
+            Observability.EventLog.Write("mod", "brain_contract_violation", new { netId = player.NetId, card = play.CardId, violation });
+            return null;
+        }
+        return new ResolvedPlay(card, target);
+    }
+
+    private static void EnqueuePlay(Player player, BuddyTurnExecution exec, ResolvedPlay play)
     {
         var action = new PlayCardAction(play.Card, play.Target);
         exec.InFlight = action;

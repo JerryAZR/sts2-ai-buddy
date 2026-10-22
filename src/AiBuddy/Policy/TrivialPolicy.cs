@@ -1,131 +1,85 @@
-using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Cards;
-using MegaCrit.Sts2.Core.Entities.Creatures;
-using MegaCrit.Sts2.Core.Entities.Players;
-using MegaCrit.Sts2.Core.Events;
-using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Map;
-using MegaCrit.Sts2.Core.Models;
-using MegaCrit.Sts2.Core.Runs;
 
 namespace AiBuddy.Policy;
 
 /// <summary>
-/// v1 trivial policy: pure decision functions over game state. Shared by phantom
-/// drivers and the debug local-player autopilot. This is the seam where a real
-/// brain (heuristic or LLM) plugs in later — decisions only, never actuation.
-/// Drivers re-validate every returned choice before actuating it (the brain is
-/// untrusted, per design §3.5).
+/// v1 trivial brain: PURE functions over detached views (see BuddyBrain.cs) — no
+/// engine references in or out, so every method is unit-testable without the game.
+/// This is the seam where a real brain (heuristic or LLM) plugs in later.
+/// The control layer re-validates every returned choice before actuating it
+/// (the brain is untrusted, per design §3.5).
 /// </summary>
 public static class TrivialPolicy
 {
     /// <summary>
     /// Relics whose obtain-flow opens a reward-set screen we can't fabricate yet (M2 subset carve-out).
-    /// Empirically verified by NeowRelicTestDriver (the static audit missed NeowsBones/SmallCapsule):
-    /// all four hang awaiting the phantom's reward selection. M3 RewardsSet fabrication unblocks all four.
+    /// Empirically verified by NeowRelicTestDriver; M3 RewardsSet fabrication unblocks all four.
     /// </summary>
     internal static readonly HashSet<string> DeferredRewardRelics = new() { "LOST_COFFER", "KALEIDOSCOPE", "NEOWS_BONES", "SMALL_CAPSULE" };
 
     /// <summary>
-    /// First valid option. Valid = not locked, won't kill the player, not deferred.
-    /// Returns null when no valid option exists (caller logs + waits for a better policy).
+    /// Combat turn: greedy full-hand batch with a locally simulated energy budget.
+    /// Legality was precomputed by the control layer (IntrinsicallyPlayable,
+    /// LegalTargetIds) — the brain only sequences and spends. Rejected cards are
+    /// never re-proposed. Cards drawn mid-batch aren't in this view; the brain is
+    /// asked again after the batch settles.
     /// </summary>
-    public static int? PickEventOption(EventModel ev)
+    public static BuddyIntent PlanTurnIntent(CombatView view)
     {
-        IReadOnlyList<EventOption> options = ev.CurrentOptions;
-        for (int i = 0; i < options.Count; i++)
-        {
-            EventOption o = options[i];
-            if (o.IsLocked || o.WillKillPlayer?.Invoke(ev.Owner) == true)
-            {
-                continue;
-            }
-            if (o.Relic != null && DeferredRewardRelics.Contains(o.Relic.Id.Entry))
-            {
-                continue;
-            }
-            return i;
-        }
-        Log.Warn($"[AiBuddy] No valid option in event {ev.Id} for player {ev.Owner.NetId}.");
-        return null;
-    }
-
-    /// <summary>Index-choice prompts (choose-a-card, bundles): always take the first. Never skips in v1.</summary>
-    public static int PickIndex(int optionCount) => 0;
-
-    /// <summary>
-    /// Brain implementation (see BuddyBrain.cs): greedily plans a full-turn batch —
-    /// every playable card in hand order, with a locally simulated energy budget
-    /// (no engine calls between picks). Rejected cards are never re-planned; cards
-    /// with target types we can't parameterize (TargetedNoCreature/Osty) are skipped
-    /// per the refusal contract. Drawn cards mid-batch aren't planned (they didn't
-    /// exist at decision time) — the brain is asked again after the batch settles.
-    /// </summary>
-    public static BuddyIntent PlanTurnIntent(BuddyTurnView view)
-    {
-        PlayerCombatState? combat = view.Player.PlayerCombatState;
-        if (combat == null)
-        {
-            return EndTurnIntent.Instance;
-        }
-        int energy = combat.Energy;
+        int energy = view.Energy;
         var plays = new List<PlannedPlay>();
-        foreach (CardModel card in combat.Hand.Cards)
+        foreach (CombatCardView card in view.Hand)
         {
-            if (view.RejectedThisTurn.Contains(card))
-            {
-                continue; // the engine refused this card this turn — never re-propose
-            }
-            // Intrinsic playability (keywords, hooks, card logic); energy is simulated below.
-            if (!card.CanPlay(out UnplayableReason reason, out _)
-                && reason != UnplayableReason.EnergyCostTooHigh)
+            if (view.RejectedCardIds.Contains(card.CardId) || !card.IntrinsicallyPlayable)
             {
                 continue;
             }
-            int cost = card.EnergyCost.CostsX ? Math.Max(energy, 0) : card.EnergyCost.GetResolved();
-            if (cost > energy || (card.EnergyCost.CostsX && energy == 0))
+            int cost = card.CostsX ? energy : card.Cost;
+            if (cost > energy || (card.CostsX && energy == 0))
             {
                 continue;
             }
-            if (!TryFindTarget(card, view.Player, out Creature? target))
+            uint? target = card.LegalTargetIds.Count > 0 ? card.LegalTargetIds[0] : null;
+            if (card.TargetKind is TargetType.AnyEnemy or TargetType.AnyAlly or TargetType.AnyPlayer && target == null)
             {
-                continue; // needs a target we can't supply — skip (refusal contract)
+                continue; // needs a target, none legal — skip
             }
             energy -= cost;
-            plays.Add(new PlannedPlay(card, target));
+            plays.Add(new PlannedPlay(card.HandIndex, card.CardId, target));
         }
         return plays.Count > 0 ? new PlayBatch(plays) : EndTurnIntent.Instance;
     }
 
     /// <summary>
-    /// Target resolution for the planner. Enemy/ally targets are creatures, exactly
-    /// as a client's UI would supply them. NEVER plan a target-requiring card without
-    /// a valid target — a null-target play is cancelled at execution, and before the
-    /// plan-executor redesign that class flooded the action queue (Coordinate bug).
+    /// First valid event option. Valid = not locked, won't kill the player, not a
+    /// deferred reward-set relic. Returns null when no valid option exists.
     /// </summary>
-    private static bool TryFindTarget(CardModel card, Player player, out Creature? target)
+    public static int? PickEventOption(EventView view)
     {
-        switch (card.TargetType)
+        foreach (EventOptionView option in view.Options)
         {
-            case TargetType.AnyEnemy:
-                target = player.Creature.CombatState?.HittableEnemies.FirstOrDefault(e => card.CanPlayTargeting(e));
-                return target != null;
-            case TargetType.AnyAlly:
-            case TargetType.AnyPlayer:
-                target = player.RunState.Players
-                    .Where(p => p != player && !p.Creature.IsDead)
-                    .Select(p => p.Creature)
-                    .FirstOrDefault(c => card.CanPlayTargeting(c));
-                return target != null;
-            case TargetType.TargetedNoCreature:
-            case TargetType.Osty:
-                target = null;
-                return false; // unsupported targeting in v1
-            default:
-                target = null; // None/Self/AllEnemies/RandomEnemy/AllAllies: no target selection
-                return true;
+            if (option.Locked || option.WillKill)
+            {
+                continue;
+            }
+            if (option.RelicId != null && DeferredRewardRelics.Contains(option.RelicId))
+            {
+                continue;
+            }
+            return option.Index;
         }
+        return null;
     }
+
+    /// <summary>Map votes: phantoms mirror the host (locked decision); the local autopilot takes the first legal destination.</summary>
+    public static MapCoord? PickMapDestination(MapPickView view)
+        => view.MirrorHostVote
+            ? view.HostVote
+            : view.LegalDestinations.Count > 0 ? view.LegalDestinations[0] : null; // struct: FirstOrDefault would return default(MapCoord), not null
+
+    /// <summary>Index-choice prompts (choose-a-card, bundles): always take the first. Never skips in v1.</summary>
+    public static int PickIndex(int optionCount) => 0;
 
     /// <summary>
     /// Multi-select prompts: the first MinSelect options (or none when cancelable
@@ -145,23 +99,5 @@ public static class TrivialPolicy
         }
         int count = Math.Clamp(Math.Max(minSelect, 1), 0, Math.Min(maxSelect, optionCount));
         return Enumerable.Range(0, count).ToList();
-    }
-
-    /// <summary>
-    /// Map votes. Locked design decision: phantoms mirror the host player's vote
-    /// (abstention risks stalling the lobby). Local autopilot takes the first child
-    /// of the current coord (first row-0 point at run start).
-    /// </summary>
-    public static MapCoord? PickMapDestination(RunState state, Player player, MapCoord? hostVote)
-    {
-        if (!LocalContext.IsMe(player))
-        {
-            return hostVote;
-        }
-        if (state.CurrentMapCoord is MapCoord current)
-        {
-            return state.Map.GetPoint(current)?.Children.FirstOrDefault()?.coord;
-        }
-        return state.Map.GetPointsInRow(0).FirstOrDefault()?.coord;
     }
 }
