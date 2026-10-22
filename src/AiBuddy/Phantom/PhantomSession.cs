@@ -46,6 +46,8 @@ public sealed class PhantomSession
     public int BuddySequenceIndex { get; set; } = -1;
     /// <summary>Phase of the current buddy in the sequence (see CombatDriver.BuddyPhase).</summary>
     public Drivers.CombatDriver.BuddyPhase BuddySequencePhase { get; set; }
+    /// <summary>Plan-execution state for the buddy currently acting (null when Waking/Ending or no sequence).</summary>
+    public Drivers.BuddyTurnExecution? CurrentBuddyTurn { get; set; }
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 

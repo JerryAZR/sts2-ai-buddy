@@ -54,60 +54,77 @@ public static class TrivialPolicy
     public static int PickIndex(int optionCount) => 0;
 
     /// <summary>
-    /// One combat action: first playable hand card with a VALID target. Enemies:
-    /// first hittable enemy. Ally/player-targeting cards (Coordinate & co.): another
-    /// living player's creature — never enqueue these without a valid target, a null
-    /// target floods the action queue with cancelled plays (observed: 150s PlayPhase
-    /// softlock with the play-queue UI full of enqueued Coordinates).
-    /// TargetedNoCreature/Osty targeting is unsupported in v1 — the card is skipped
-    /// (refusal contract: nothing invalid is ever enqueued).
-    /// Returns null when nothing is playable (caller ends turn).
+    /// Brain implementation (see BuddyBrain.cs): greedily plans a full-turn batch —
+    /// every playable card in hand order, with a locally simulated energy budget
+    /// (no engine calls between picks). Rejected cards are never re-planned; cards
+    /// with target types we can't parameterize (TargetedNoCreature/Osty) are skipped
+    /// per the refusal contract. Drawn cards mid-batch aren't planned (they didn't
+    /// exist at decision time) — the brain is asked again after the batch settles.
     /// </summary>
-    public static (CardModel card, Creature? target)? PickCombatAction(Player player)
+    public static BuddyIntent PlanTurnIntent(BuddyTurnView view)
     {
-        PlayerCombatState? combat = player.PlayerCombatState;
+        PlayerCombatState? combat = view.Player.PlayerCombatState;
         if (combat == null)
         {
-            return null;
+            return EndTurnIntent.Instance;
         }
+        int energy = combat.Energy;
+        var plays = new List<PlannedPlay>();
         foreach (CardModel card in combat.Hand.Cards)
         {
-            if (!card.CanPlay())
+            if (view.RejectedThisTurn.Contains(card))
+            {
+                continue; // the engine refused this card this turn — never re-propose
+            }
+            // Intrinsic playability (keywords, hooks, card logic); energy is simulated below.
+            if (!card.CanPlay(out UnplayableReason reason, out _)
+                && reason != UnplayableReason.EnergyCostTooHigh)
             {
                 continue;
             }
-            switch (card.TargetType)
+            int cost = card.EnergyCost.CostsX ? Math.Max(energy, 0) : card.EnergyCost.GetResolved();
+            if (cost > energy || (card.EnergyCost.CostsX && energy == 0))
             {
-                case TargetType.AnyEnemy:
-                {
-                    Creature? enemy = player.Creature.CombatState?.HittableEnemies.FirstOrDefault(e => card.CanPlayTargeting(e));
-                    if (enemy != null)
-                    {
-                        return (card, enemy);
-                    }
-                    break;
-                }
-                case TargetType.AnyAlly:
-                case TargetType.AnyPlayer:
-                {
-                    Creature? ally = player.RunState.Players
-                        .Where(p => p != player && !p.Creature.IsDead)
-                        .Select(p => p.Creature)
-                        .FirstOrDefault(c => card.CanPlayTargeting(c));
-                    if (ally != null)
-                    {
-                        return (card, ally);
-                    }
-                    break;
-                }
-                case TargetType.TargetedNoCreature:
-                case TargetType.Osty:
-                    break; // unsupported targeting — skip
-                default:
-                    return (card, null); // None/Self/AllEnemies/RandomEnemy/AllAllies: no target selection
+                continue;
             }
+            if (!TryFindTarget(card, view.Player, out Creature? target))
+            {
+                continue; // needs a target we can't supply — skip (refusal contract)
+            }
+            energy -= cost;
+            plays.Add(new PlannedPlay(card, target));
         }
-        return null;
+        return plays.Count > 0 ? new PlayBatch(plays) : EndTurnIntent.Instance;
+    }
+
+    /// <summary>
+    /// Target resolution for the planner. Enemy/ally targets are creatures, exactly
+    /// as a client's UI would supply them. NEVER plan a target-requiring card without
+    /// a valid target — a null-target play is cancelled at execution, and before the
+    /// plan-executor redesign that class flooded the action queue (Coordinate bug).
+    /// </summary>
+    private static bool TryFindTarget(CardModel card, Player player, out Creature? target)
+    {
+        switch (card.TargetType)
+        {
+            case TargetType.AnyEnemy:
+                target = player.Creature.CombatState?.HittableEnemies.FirstOrDefault(e => card.CanPlayTargeting(e));
+                return target != null;
+            case TargetType.AnyAlly:
+            case TargetType.AnyPlayer:
+                target = player.RunState.Players
+                    .Where(p => p != player && !p.Creature.IsDead)
+                    .Select(p => p.Creature)
+                    .FirstOrDefault(c => card.CanPlayTargeting(c));
+                return target != null;
+            case TargetType.TargetedNoCreature:
+            case TargetType.Osty:
+                target = null;
+                return false; // unsupported targeting in v1
+            default:
+                target = null; // None/Self/AllEnemies/RandomEnemy/AllAllies: no target selection
+                return true;
+        }
     }
 
     /// <summary>

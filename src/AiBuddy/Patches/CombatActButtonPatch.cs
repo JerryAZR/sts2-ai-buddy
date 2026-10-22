@@ -3,10 +3,19 @@ using AiBuddy.Phantom;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace AiBuddy.Patches;
+
+/// <summary>Exact rejection signal for the plan executor: a cancelled in-flight play is flagged on its BuddyTurnExecution.</summary>
+[HarmonyPatch(typeof(PlayCardAction), "CancelAction")]
+internal static class PlayCardCancelPatch
+{
+    private static void Postfix(PlayCardAction __instance)
+        => CombatDriver.NotifyPlayCancelled(__instance);
+}
 
 /// <summary>
 /// The host-only "Buddy: act" button (design §3.5): triggers one buddy turn

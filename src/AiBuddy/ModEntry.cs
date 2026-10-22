@@ -35,6 +35,7 @@ public static class ModEntry
         typeof(Patches.CardRewardPromptCapturePatch),
         typeof(Patches.PhantomSendGuardPatch),
         typeof(Patches.PhantomEnemyTurnReadyPatch),
+        typeof(Patches.PlayCardCancelPatch),
         typeof(Patches.CombatActButtonPatch),
         typeof(Patches.AutomationTick),
     };
@@ -73,6 +74,7 @@ public static class ModEntry
         "CardSelectCmd.FromDeckGeneric",
         "CardSelectCmd.FromChooseABundleScreen",
         "ReadyToBeginEnemyTurnAction.ExecuteAction",
+        "PlayCardAction.CancelAction",
         "NCombatRoom._Ready",
     };
 
