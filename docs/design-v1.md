@@ -104,7 +104,7 @@ Plus lobby ready states, `CombatManager`'s two ready sets, and checksums (client
 Per the locked decisions:
 
 - **Mechanical confirmations are never the brain's job.** The control layer auto-issues: end-turn ready when the phantom has nothing left to do, ready-to-begin-enemy-turn, vote mirroring, room-advance ready-ups. A missed confirmation stalls three humans; a missed card play is a no-op.
-- **Host-gated combat turns**: a host-only overlay button ("Buddy: act") arms the phantom's turn. When pressed, the control layer asks the policy for actions and enqueues them. Without a press, the phantom readies and passes. **Wake-up** = the control layer enqueues `NetUndoEndPlayerTurnAction` (vanilla back-out action — exists in the protocol) or cancels its own committed confirmation, then lets the policy act again.
+- **Combat turns (amended, user-approved):** phantoms hold their end-turn while the local host player is still playing; when the host ends their turn, phantoms take their turns **in registration order** (buddy N+1 waits for buddy N, so each sees the previous one's results), playing one card per tick until the policy finds nothing playable, then end promptly. The host-only **"Buddy: act" button** remains for manual mid-turn triggers; **wake-up** = `NetUndoEndPlayerTurnAction` (vanilla back-out) when the phantom already ended.
 - **Brain boundary**: the policy receives a structured snapshot (game state + legal-action list) and returns *candidate* actions. **The control layer validates every candidate against the legal-action list before enqueue** — the brain is untrusted; invalid output is discarded/retried, never executed. (User requirement.)
 - v1 policy: random legal card play; abstain-by-readying otherwise.
 

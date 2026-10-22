@@ -33,8 +33,12 @@ internal static class PhantomEnemyTurnReadyPatch
         var ready = CombatStateProbe.PlayersReadyToBeginEnemyTurn(turn);
         foreach (PhantomDescriptor phantom in session.Phantoms)
         {
+            // Dead phantoms included: in vanilla a dead player's CLIENT still sends its
+            // ReadyToBeginEnemyTurnAction (the client is alive even when the character
+            // isn't), and the begin-enemy-turn wait counts all players. Phantoms have
+            // no client, so we send for them — dead or alive.
             Player? player = state.GetPlayer(phantom.NetId);
-            if (player == null || player.Creature.IsDead || ready.Contains(player))
+            if (player == null || ready.Contains(player))
             {
                 continue;
             }
