@@ -37,10 +37,17 @@ public sealed class PhantomSession
     public Dictionary<ulong, Drivers.ChoiceDriver.PendingPrompt> PendingChoices { get; } = new();
     public Dictionary<ulong, MapCoord> InFlightVotes { get; } = new();
     public HashSet<EventModel> ProceededEvents { get; } = new();
-    /// <summary>NetId → combat turn number for which the host armed the phantom to act (the "Buddy: act" button).</summary>
-    public Dictionary<ulong, int> ArmedPhantoms { get; } = new();
-    /// <summary>Buddies with an UndoEndPlayerTurnAction enqueued but not yet executed — guards against duplicate wake-ups.</summary>
-    public HashSet<ulong> PendingWakeUps { get; } = new();
+    /// <summary>
+    /// Buddy turn sequence (design §3.5): index into <see cref="Phantoms"/> of the buddy currently
+    /// taking its turn; -1 = no sequence running. The host triggers a sequence (the single door is
+    /// CombatDriver.TriggerSequence); buddies then act strictly in registration order, one at a time.
+    /// Per-combat state: cleared on every PlayPhase entry (turn boundary) and combat end.
+    /// </summary>
+    public int BuddySequenceIndex { get; set; } = -1;
+    /// <summary>Phase of the current buddy in the sequence (see CombatDriver.BuddyPhase).</summary>
+    public Drivers.CombatDriver.BuddyPhase BuddySequencePhase { get; set; }
+    /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
+    public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 
     private PhantomSession(INetGameService? netService) => _netService = netService;
 

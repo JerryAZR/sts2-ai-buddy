@@ -9,9 +9,9 @@ using MegaCrit.Sts2.Core.Runs;
 namespace AiBuddy.Patches;
 
 /// <summary>
-/// The host-only "Buddy: act" button (design §3.5): arms every phantom to take one
-/// combat action, waking any that already ended their turn. Host-local Godot UI,
-/// invisible to vanilla guests.
+/// The host-only "Buddy: act" button (design §3.5): triggers one buddy turn
+/// sequence (buddies act in registration order; ended ones are woken). Host-local
+/// Godot UI, invisible to vanilla guests.
 /// </summary>
 [HarmonyPatch(typeof(NCombatRoom), nameof(NCombatRoom._Ready))]
 internal static class CombatActButtonPatch
@@ -34,17 +34,9 @@ internal static class CombatActButtonPatch
         button.Pressed += () =>
         {
             RunState? state = RunManager.Instance?.DebugOnlyGetState();
-            if (state == null || PhantomSession.Current is not { } session)
+            if (state != null && PhantomSession.Current != null)
             {
-                return;
-            }
-            foreach (PhantomDescriptor phantom in session.Phantoms)
-            {
-                Player? player = state.GetPlayer(phantom.NetId);
-                if (player != null)
-                {
-                    CombatDriver.ArmOrWake(player);
-                }
+                CombatDriver.TriggerSequence(state);
             }
         };
         __instance.AddChild(button);

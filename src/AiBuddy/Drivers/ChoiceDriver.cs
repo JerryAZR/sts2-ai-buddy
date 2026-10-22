@@ -21,9 +21,13 @@ namespace AiBuddy.Drivers;
 /// </summary>
 public static class ChoiceDriver
 {
-    public enum PromptKind { Index, Indexes, CombatCards, DeckCards }
+    public enum PromptKind { Index, Indexes, CombatCards, DeckCards, PlayerId }
 
-    public sealed record PendingPrompt(PromptKind Kind, IReadOnlyList<CardModel> Options, int MinSelect, int MaxSelect, bool Cancelable);
+    public sealed record PendingPrompt(PromptKind Kind, IReadOnlyList<CardModel> Options, int MinSelect, int MaxSelect, bool Cancelable)
+    {
+        /// <summary>Number of offered choices. Defaults to Options.Count; set explicitly for non-card index prompts (e.g. relic selects).</summary>
+        public int OptionCount { get; init; } = Options.Count;
+    }
 
     private static readonly MethodInfo OnReceivePlayerChoice =
         typeof(PlayerChoiceSynchronizer).GetMethod("OnReceivePlayerChoice", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -61,21 +65,25 @@ public static class ChoiceDriver
         {
             result = prompt.Kind switch
             {
-                PromptKind.Index => PlayerChoiceResult.FromIndex(TrivialPolicy.PickIndex(prompt.Options.Count)),
+                PromptKind.Index => PlayerChoiceResult.FromIndex(TrivialPolicy.PickIndex(prompt.OptionCount)),
                 PromptKind.Indexes => FromIndexes(prompt),
                 PromptKind.CombatCards => PickCards(prompt) is { } combatCards
                     ? PlayerChoiceResult.FromMutableCombatCards(combatCards) : null,
                 PromptKind.DeckCards => PickCards(prompt) is { } deckCards
                     ? PlayerChoiceResult.FromMutableDeckCards(deckCards) : null,
+                PromptKind.PlayerId => PlayerChoiceResult.FromPlayerId(null), // trivial: mend nobody
                 _ => throw new ArgumentOutOfRangeException(),
             };
         }
         else
         {
-            // A choice we have no capture for (non-card prompts, e.g. player picking).
-            // KitLib precedent: default to index 0, loudly — the wait tracer surfaces hangs.
-            Log.Warn($"[AiBuddy] Fabricating blind index-0 choice for phantom {player.NetId} (choiceId {choiceId}) — no prompt captured.");
-            result = PlayerChoiceResult.FromIndex(0);
+            // No capture for this wait: an unhandled wait site (structural gap —
+            // WaitSiteCompletenessTests exists to prevent exactly this) or a stale-prompt
+            // mismatch. Never guess a result shape: refuse loudly, leave the wait
+            // pending, and let the wait tracer name the stall.
+            Log.Error($"[AiBuddy] Phantom {player.NetId} waited on choice {choiceId} with NO captured prompt — unhandled wait site. Refusing to fabricate blindly.");
+            Observability.EventLog.Write("mod", "choice_fabrication_refused", new { netId = player.NetId, choiceId, reason = "no_prompt" });
+            return;
         }
 
         if (result == null)
@@ -90,6 +98,26 @@ public static class ChoiceDriver
         Observability.EventLog.Write("mod", "choice_fabricated", new { netId = player.NetId, choiceId, result = result.ToString() });
         OnReceivePlayerChoice.Invoke(synchronizer, new object[] { player, choiceId, result.ToNetData() });
         // TODO(M7): broadcast forged-sender PlayerChoiceMessage so guests resolve their waiters too.
+    }
+
+    /// <summary>
+    /// Boundary invariant: capture and consumption pair within a single command
+    /// execution, so a PendingChoice must never survive a room/combat transition.
+    /// A survivor means vanilla took an early-out after our capture (e.g. empty
+    /// option list, auto-select shortcut) — panic and drop, never leave poison.
+    /// </summary>
+    public static void OnBoundary()
+    {
+        if (PhantomSession.Current is not { } session || session.PendingChoices.Count == 0)
+        {
+            return;
+        }
+        foreach (KeyValuePair<ulong, PendingPrompt> stale in session.PendingChoices)
+        {
+            Log.Error($"[AiBuddy] Phantom {stale.Key} had an unconsumed {stale.Value.Kind} prompt at a boundary (vanilla early-out after capture?) — dropping.");
+            Observability.EventLog.Write("mod", "pending_choice_dropped", new { netId = stale.Key, kind = stale.Value.Kind.ToString() });
+        }
+        session.PendingChoices.Clear();
     }
 
     private static PlayerChoiceResult? FromIndexes(PendingPrompt prompt)

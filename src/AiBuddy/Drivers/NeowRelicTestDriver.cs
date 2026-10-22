@@ -1,4 +1,5 @@
 using AiBuddy.Phantom;
+using AiBuddy.Policy;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
@@ -23,20 +24,25 @@ public static class NeowRelicTestDriver
 {
     private const double TimeoutSeconds = 20;
 
-    /// <summary>Every relic option Neow can offer (v0.111.0 audit). expectComplete=false marks the known reward-set gap (M3 flips them).</summary>
-    private static readonly (string typeName, bool expectComplete)[] Cases =
+    /// <summary>
+    /// Every relic option Neow can offer (v0.111.0 audit). Expected outcomes are NOT
+    /// duplicated here: a relic is expected to time out iff TrivialPolicy defers it
+    /// (DeferredRewardRelics) — the policy and the test expectation share one source
+    /// of truth, so the M3 flip can't desynchronize them.
+    /// </summary>
+    private static readonly string[] Cases =
     {
         // Direct grants (clean)
-        ("ArcaneScroll", true), ("BoomingConch", true), ("FishingRod", true), ("GoldenPearl", true),
-        ("LavaRock", true), ("NeowsTalisman", true), ("NeowsTorment", true),
-        ("NeowsSacrifice", true), ("NutritiousOyster", true), ("PhialHolster", true), ("Pomander", true),
-        ("StoneHumidifier", true), ("WingedBoots", true),
-        ("CursedPearl", true), ("LargeCapsule", true), ("LeafyPoultice", true), ("SilkenTress", true), ("SilverCrucible", true),
+        "ArcaneScroll", "BoomingConch", "FishingRod", "GoldenPearl",
+        "LavaRock", "NeowsTalisman", "NeowsTorment",
+        "NeowsSacrifice", "NutritiousOyster", "PhialHolster", "Pomander",
+        "StoneHumidifier", "WingedBoots",
+        "CursedPearl", "LargeCapsule", "LeafyPoultice", "SilkenTress", "SilverCrucible",
         // Card-select prompts (choice fabrication)
-        ("LeadPaperweight", true), ("MassiveScroll", true), ("HeftyTablet", true), ("ScrollBoxes", true),
-        ("NewLeaf", true), ("PreciseScissors", true), ("PrecariousShears", true),
-        // Reward-set offers — KNOWN GAP until M3 RewardsSet fabrication lands (empirically verified: all four hang)
-        ("LostCoffer", false), ("Kaleidoscope", false), ("NeowsBones", false), ("SmallCapsule", false),
+        "LeadPaperweight", "MassiveScroll", "HeftyTablet", "ScrollBoxes",
+        "NewLeaf", "PreciseScissors", "PrecariousShears",
+        // Reward-set offers (deferred in TrivialPolicy until M3 RewardsSet fabrication lands)
+        "LostCoffer", "Kaleidoscope", "NeowsBones", "SmallCapsule",
     };
 
     private static bool _started;
@@ -51,9 +57,10 @@ public static class NeowRelicTestDriver
         {
             return;
         }
-        // Wait until the phantom's Neow event is done so its prompts don't interleave with ours.
+        // Wait until EVERY phantom's Neow event is done — test obtains must not
+        // interleave with any phantom's live prompts (M1 invariant: ≥2 phantoms).
         EventSynchronizer events = RunManager.Instance.EventSynchronizer;
-        if (events.Events.Any(e => e.Owner.NetId == phantoms[0].NetId && !e.IsFinished))
+        if (events.Events.Any(e => !e.IsFinished && phantoms.Any(p => p.NetId == e.Owner.NetId)))
         {
             return;
         }
@@ -71,7 +78,7 @@ public static class NeowRelicTestDriver
         }
 
         int pass = 0, fail = 0;
-        foreach ((string typeName, bool expectComplete) in Cases)
+        foreach (string typeName in Cases)
         {
             RelicModel? canonical = ModelDb.AllRelics.FirstOrDefault(r => r.GetType().Name == typeName);
             if (canonical == null)
@@ -80,6 +87,7 @@ public static class NeowRelicTestDriver
                 fail++;
                 continue;
             }
+            bool expectComplete = !TrivialPolicy.DeferredRewardRelics.Contains(canonical.Id.Entry);
 
             int deckBefore = player.Deck.Cards.Count;
             string? error = null;
@@ -103,7 +111,9 @@ public static class NeowRelicTestDriver
                 error = ex.Message;
             }
 
-            bool testPassed = completed == expectComplete;
+            // Expected-timeout cases must time out CLEANLY: a faulted obtain is a
+            // crash, not the known reward-set gap, and must fail loudly.
+            bool testPassed = expectComplete ? completed : (!completed && error == null);
             if (testPassed) pass++; else fail++;
             Observability.EventLog.Write("test", "test_relic_result", new
             {

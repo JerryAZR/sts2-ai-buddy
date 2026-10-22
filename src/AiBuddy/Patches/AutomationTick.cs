@@ -3,8 +3,10 @@ using AiBuddy.Phantom;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Logging;
+using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Runs;
@@ -28,6 +30,8 @@ internal static class AutomationTick
     // Driver errors are escalated to the game log once per distinct failure —
     // catching is required (never throw out of _Process), but silence hides stalls.
     private static readonly HashSet<string> _reportedErrors = new();
+    private static ActionSynchronizerCombatState? _lastCombatState;
+    private static MapCoord? _lastMapCoord;
 
     private static void Postfix(double delta)
     {
@@ -61,6 +65,31 @@ internal static class AutomationTick
             return;
         }
 
+        // Boundary edges: per-combat sequence state and per-room prompt captures must
+        // not survive transitions (both drivers panic-log a non-empty clear).
+        ActionSynchronizerCombatState combatState = run.ActionQueueSynchronizer.CombatState;
+        if (_lastCombatState != combatState)
+        {
+            if (combatState is ActionSynchronizerCombatState.PlayPhase or ActionSynchronizerCombatState.NotInCombat)
+            {
+                CombatDriver.OnCombatBoundary();
+            }
+            if (combatState == ActionSynchronizerCombatState.NotInCombat)
+            {
+                ChoiceDriver.OnBoundary();
+            }
+            _lastCombatState = combatState;
+        }
+        MapCoord? coord = state.CurrentMapCoord;
+        if (!Equals(_lastMapCoord, coord))
+        {
+            if (_lastMapCoord.HasValue)
+            {
+                ChoiceDriver.OnBoundary();
+            }
+            _lastMapCoord = coord;
+        }
+
         // Phantom drivers run on the host only.
         if (run.NetService.Type == NetGameType.Host && PhantomSession.Current is { } session)
         {
@@ -71,9 +100,9 @@ internal static class AutomationTick
                 {
                     SafeDrive("EventDriver", () => EventDriver.Drive(player, state));
                     SafeDrive("MapDriver", () => MapDriver.Drive(player, state));
-                    SafeDrive("CombatDriver", () => CombatDriver.Drive(player, state));
                 }
             }
+            SafeDrive("CombatDriver", () => CombatDriver.DriveSequence(state));
         }
 
         if (AutoplayLocal)

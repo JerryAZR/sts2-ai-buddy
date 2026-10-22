@@ -17,12 +17,16 @@ namespace AiBuddy.Patches;
 [HarmonyPatch(typeof(ReadyToBeginEnemyTurnAction), "ExecuteAction")]
 internal static class PhantomEnemyTurnReadyPatch
 {
-    private static void Postfix()
+    private static void Postfix(ReadyToBeginEnemyTurnAction __instance)
     {
         if (PhantomSession.Current is not { } session
             || RunManager.Instance?.NetService.Type != NetGameType.Host)
         {
             return;
+        }
+        if (session.IsPhantom(__instance.OwnerId))
+        {
+            return; // our own enqueued phantom actions re-enter here — never amplify
         }
         object? turn = CombatStateProbe.GetTurnState();
         RunState? state = RunManager.Instance.DebugOnlyGetState();

@@ -30,6 +30,9 @@ public static class ModEntry
         typeof(Patches.PhantomActionEnqueuePatch),
         typeof(Patches.ChoiceFabricationPatch),
         typeof(Patches.CardPromptCapturePatches),
+        typeof(Patches.RelicPromptCapturePatch),
+        typeof(Patches.MendPromptCapturePatch),
+        typeof(Patches.CardRewardPromptCapturePatch),
         typeof(Patches.PhantomSendGuardPatch),
         typeof(Patches.PhantomEnemyTurnReadyPatch),
         typeof(Patches.CombatActButtonPatch),
@@ -53,6 +56,7 @@ public static class ModEntry
         typeof(Drivers.ChoiceDriver),
         typeof(Drivers.CombatStateProbe),
         typeof(Drivers.EventDriver),
+        typeof(Patches.MendPromptCapturePatch),
     };
 
     /// <summary>Game methods every build expects to have patched (DeclaringType.MethodName).</summary>
@@ -99,8 +103,8 @@ public static class ModEntry
         Log.Info($"[{ModId}] Initialized. Core patches: {CorePatches.Length} classes verified.");
     }
 
-    /// <summary>Force every reflection holder's static ctor now, so a renamed game member fails here.</summary>
-    private static void ValidateReflectionTargets()
+    /// <summary>Force every reflection holder's static ctor now, so a renamed game member fails here. Internal: unit tests run this against the current game assembly to catch EA drift without launching the game.</summary>
+    internal static void ValidateReflectionTargets()
     {
         foreach (Type holder in ReflectionHolders)
         {

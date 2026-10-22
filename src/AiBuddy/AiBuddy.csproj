@@ -17,6 +17,10 @@
     <DefineConstants Condition="'$(AiBuddyDebug)' == 'true'">$(DefineConstants);AI_BUDDY_DEBUG</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AiBuddy.Tests" />
+  </ItemGroup>
+
   <Target Name="ValidateGameReferences" BeforeTargets="ResolveReferences">
     <Error Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)\sts2.dll')"
            Text="Set GameDir or Sts2DataDir to the current Slay the Spire 2 installation." />

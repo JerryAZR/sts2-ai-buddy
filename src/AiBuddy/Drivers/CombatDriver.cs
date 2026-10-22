@@ -9,139 +9,206 @@ using MegaCrit.Sts2.Core.Runs;
 namespace AiBuddy.Drivers;
 
 /// <summary>
-/// Phantom combat control (design §3.5). Buddies HOLD their end-turn while unarmed —
-/// the host controls turn pacing entirely. Triggers:
-///  1. the host-only "Buddy: act" button (arms all buddies; wakes ended ones);
-///  2. optional auto-act-on-host-end (AIBUDDY_AUTO_ACT_ON_HOST_END=1 for now);
-///  3. the debug autopilot, which triggers after ending its own turn.
-/// Armed buddies act in registration order — buddy N+1 waits for buddy N to end
-/// its turn, so each sees the previous one's results. One card per tick (fresh
-/// state per pick). An exhausted buddy disarms and ends its turn. Re-triggering an
-/// ended buddy wakes it via the vanilla UndoEndPlayerTurnAction.
+/// Phantom combat control (design §3.5). Buddies HOLD their end-turn until the host
+/// triggers a turn sequence — the host controls pacing entirely. All triggers go
+/// through the single door <see cref="TriggerSequence"/>:
+///  1. the host-only "Buddy: act" button;
+///  2. the debug autopilot (triggers after ending its own turn);
+///  3. the optional auto-act-on-host-end (AIBUDDY_AUTO_ACT_ON_HOST_END=1).
+///
+/// A trigger is a no-op while a sequence is already running — there is exactly one
+/// sequence at a time, and within it buddies act strictly in registration order:
+/// the current buddy is woken (UndoEndPlayerTurnAction) if it had ended, plays one
+/// card per tick until exhausted, ends its turn, and only then does the next buddy
+/// start. Re-triggering after a completed sequence is the intended wake-and-replay
+/// path.
+///
+/// State is a single per-combat (index, phase) pair on the session — no per-buddy
+/// stores to disagree. Dead-buddy contract: triggers never act dead buddies, and a
+/// buddy that dies mid-sequence (wake in flight) is force re-ended — dead buddies
+/// always end up holding.
 /// </summary>
 public static class CombatDriver
 {
+    /// <summary>Phase of the current buddy: Waking = wake enqueued, waiting for it to land; Acting = playing cards; Ending = end-turn enqueued, waiting to land.</summary>
+    public enum BuddyPhase { Waking, Acting, Ending }
+
     private static readonly bool AutoActOnHostEnd =
         System.Environment.GetEnvironmentVariable("AIBUDDY_AUTO_ACT_ON_HOST_END") == "1";
 
     private static bool InPlayPhase =>
         RunManager.Instance.ActionQueueSynchronizer.CombatState == ActionSynchronizerCombatState.PlayPhase;
 
-    /// <summary>Per-tick phantom combat driving (host only).</summary>
-    public static void Drive(Player player, RunState state)
+    /// <summary>
+    /// The single door for all triggers. No-op while a sequence is running (one
+    /// sequence at a time) or outside the play phase (the turn-end handshake cancels
+    /// or defers player-driven actions — a trigger there would be silently swallowed).
+    /// </summary>
+    public static void TriggerSequence(RunState state)
+    {
+        if (PhantomSession.Current is not { } session || session.BuddySequenceIndex >= 0)
+        {
+            return; // a sequence is already running — triggers never stack
+        }
+        if (!InPlayPhase)
+        {
+            Observability.EventLog.Write("mod", "buddy_trigger_ignored", new { reason = "not_play_phase" });
+            return;
+        }
+        object? turn = CombatStateProbe.GetTurnState();
+        if (turn == null || !CombatStateProbe.IsInProgress(turn) || session.Phantoms.Count == 0)
+        {
+            return;
+        }
+        Observability.EventLog.Write("mod", "buddy_sequence_triggered");
+        session.BuddySequenceIndex = 0;
+        EnterCurrentBuddy(session, state, turn);
+    }
+
+    /// <summary>Per-tick sequence advance (host only). Enqueues at most one action per tick.</summary>
+    public static void DriveSequence(RunState state)
     {
         if (PhantomSession.Current is not { } session || !InPlayPhase)
         {
             return;
         }
         object? turn = CombatStateProbe.GetTurnState();
-        PlayerCombatState? combat = player.PlayerCombatState;
-        if (turn == null || !CombatStateProbe.IsInProgress(turn) || combat == null || player.Creature.IsDead)
+        if (turn == null || !CombatStateProbe.IsInProgress(turn))
         {
             return;
         }
-        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
-        if (readyToEnd.Contains(player))
-        {
-            session.ArmedPhantoms.Remove(player.NetId);
-            return; // turn ended; only a trigger (wake-up) can change that
-        }
-        session.PendingWakeUps.Remove(player.NetId); // wake-up (if any) has landed
 
-        int turnNumber = combat.TurnNumber;
-
-        // Arms are per-turn: a stale arm from an earlier turn never carries over.
-        if (session.ArmedPhantoms.TryGetValue(player.NetId, out int armedTurn) && armedTurn != turnNumber)
-        {
-            session.ArmedPhantoms.Remove(player.NetId);
-        }
-
-        // Optional trigger: auto-act when the local host player ends their turn.
-        // Same door as the button and the autopilot: ArmOrWake owns arming rules.
-        if (AutoActOnHostEnd && !session.ArmedPhantoms.ContainsKey(player.NetId))
+        // Optional trigger: auto-act when the local host player ends their turn. Same door.
+        if (AutoActOnHostEnd && session.BuddySequenceIndex < 0)
         {
             Player? host = MegaCrit.Sts2.Core.Context.LocalContext.GetMe(state);
-            if (host != null && readyToEnd.Contains(host))
+            if (host != null && CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(host))
             {
-                ArmOrWake(player);
+                TriggerSequence(state);
             }
         }
-
-        // Unarmed buddies hold — the host decides when (and whether) they act.
-        if (!session.ArmedPhantoms.ContainsKey(player.NetId))
+        if (session.BuddySequenceIndex < 0)
         {
             return;
         }
 
-        // Sequencing: wait for earlier-registered armed buddies to finish their turns.
-        foreach (PhantomDescriptor earlier in session.Phantoms)
+        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
+        int hops = 0;
+        while (session.BuddySequenceIndex < session.Phantoms.Count && ++hops <= session.Phantoms.Count + 2)
         {
-            if (earlier.NetId == player.NetId)
+            PhantomDescriptor buddy = session.Phantoms[session.BuddySequenceIndex];
+            Player? player = state.GetPlayer(buddy.NetId);
+            if (player?.PlayerCombatState == null)
             {
-                break;
+                Advance(session, state, turn);
+                continue;
             }
-            Player? earlierPlayer = state.GetPlayer(earlier.NetId);
-            if (earlierPlayer != null
-                && session.ArmedPhantoms.ContainsKey(earlier.NetId)
-                && !earlierPlayer.Creature.IsDead
-                && !readyToEnd.Contains(earlierPlayer))
+            bool readied = readyToEnd.Contains(player);
+
+            if (player.Creature.IsDead)
             {
-                return; // earlier buddy is still taking its turn
+                if (readied)
+                {
+                    Advance(session, state, turn); // dead buddies hold end-turn; skip
+                    continue;
+                }
+                // Dead but un-readied: the died-mid-wake race. Force the end-turn back —
+                // nothing else will, and an un-readied player blocks the turn forever.
+                if (session.DeadBuddyPanicLogged.Add(player.NetId))
+                {
+                    MegaCrit.Sts2.Core.Logging.Log.Error($"[AiBuddy] Dead buddy {player.NetId} was outside the ready-to-end set (died mid-wake?) — re-ending its turn.");
+                }
+                Observability.EventLog.Write("mod", "dead_buddy_repinned", new { netId = player.NetId });
+                Enqueue(new EndPlayerTurnAction(player, player.PlayerCombatState.TurnNumber));
+                return;
+            }
+
+            switch (session.BuddySequencePhase)
+            {
+                case BuddyPhase.Waking:
+                    if (readied)
+                    {
+                        return; // wake still in flight
+                    }
+                    session.BuddySequencePhase = BuddyPhase.Acting;
+                    continue;
+
+                case BuddyPhase.Acting:
+                    if (TrivialPolicy.PickCombatAction(player) is { } play)
+                    {
+                        Observability.EventLog.Write("mod", "phantom_combat_action",
+                            new { netId = player.NetId, card = play.card.Id.Entry, target = play.target?.CombatId.ToString() });
+                        Enqueue(new PlayCardAction(play.card, play.target));
+                        return; // one card per tick; next tick re-evaluates fresh state
+                    }
+                    Enqueue(new EndPlayerTurnAction(player, player.PlayerCombatState.TurnNumber));
+                    session.BuddySequencePhase = BuddyPhase.Ending;
+                    return;
+
+                case BuddyPhase.Ending:
+                    if (!readied)
+                    {
+                        return; // end-turn still in flight
+                    }
+                    Advance(session, state, turn);
+                    continue;
             }
         }
 
-        if (TrivialPolicy.PickCombatAction(player) is { } play)
+        if (session.BuddySequenceIndex >= session.Phantoms.Count)
         {
-            Observability.EventLog.Write("mod", "phantom_combat_action",
-                new { netId = player.NetId, card = play.card.Id.Entry, target = play.target?.CombatId.ToString() });
-            Enqueue(new PlayCardAction(play.card, play.target));
-            return; // stay armed; next tick re-evaluates fresh state
+            session.BuddySequenceIndex = -1;
+            Observability.EventLog.Write("mod", "buddy_sequence_done");
         }
-
-        // Nothing playable: disarm and end the turn.
-        // Known benign race: a re-trigger landing while this EndPlayerTurnAction is
-        // still queued plays the new cards AFTER the end-turn commit (queue order).
-        // The buddy ends its turn having played them — acceptable, no stall.
-        session.ArmedPhantoms.Remove(player.NetId);
-        Enqueue(new EndPlayerTurnAction(player, turnNumber));
     }
 
     /// <summary>
-    /// The single door for all triggers (button, autopilot, auto-act option).
-    /// Guards: no-op if the buddy is already armed this turn; no duplicate wake
-    /// while one is in flight; arms are per-turn. A trigger arriving after all
-    /// buddies ended is the intended wake-and-replay path (design §3.5 point 4).
+    /// Combat-boundary reset (turn boundary = PlayPhase entry, or combat end). This is
+    /// the NORMAL completion path for the final buddy: its end-turn landing satisfies
+    /// all-readied, so the game leaves PlayPhase in the same frame — our 500ms tick
+    /// usually never observes the sequence's last state. A genuinely stalled sequence
+    /// is visible via the wait tracer (combat stuck in PlayPhase), not here.
     /// </summary>
-    public static void ArmOrWake(Player player)
+    public static void OnCombatBoundary()
     {
-        if (PhantomSession.Current is not { } session)
+        if (PhantomSession.Current is { } session && session.BuddySequenceIndex >= 0)
         {
-            return;
+            Observability.EventLog.Write("mod", "buddy_sequence_reset_at_boundary", new { index = session.BuddySequenceIndex });
+            session.BuddySequenceIndex = -1;
         }
-        object? turn = CombatStateProbe.GetTurnState();
-        if (turn == null || !CombatStateProbe.IsInProgress(turn) || player.PlayerCombatState == null)
-        {
-            return;
-        }
-        int turnNumber = player.PlayerCombatState.TurnNumber;
-        if (session.ArmedPhantoms.TryGetValue(player.NetId, out int existing) && existing == turnNumber)
-        {
-            return; // already taking its turn — re-trigger mid-turn is a no-op
-        }
-        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
-        if (readyToEnd.Contains(player))
-        {
-            if (!session.PendingWakeUps.Add(player.NetId))
-            {
-                return; // a wake-up is already in flight (e.g. button + autopilot both triggered)
-            }
-            Observability.EventLog.Write("mod", "phantom_wake_up", new { netId = player.NetId, turnNumber });
-            Enqueue(new UndoEndPlayerTurnAction(player, turnNumber));
-        }
-        session.ArmedPhantoms[player.NetId] = turnNumber;
     }
 
-    /// <summary>Debug autopilot for the local player: play one card per tick, then end turn, then trigger buddies.</summary>
+    private static void Advance(PhantomSession session, RunState state, object turn)
+    {
+        session.BuddySequenceIndex++;
+        EnterCurrentBuddy(session, state, turn);
+    }
+
+    /// <summary>Enter the current buddy: wake it if it already ended (wake lands next tick); otherwise it starts acting. Dead/self-resolving buddies are handled by the drive loop.</summary>
+    private static void EnterCurrentBuddy(PhantomSession session, RunState state, object turn)
+    {
+        session.BuddySequencePhase = BuddyPhase.Waking;
+        if (session.BuddySequenceIndex >= session.Phantoms.Count)
+        {
+            return;
+        }
+        Player? player = state.GetPlayer(session.Phantoms[session.BuddySequenceIndex].NetId);
+        if (player?.PlayerCombatState == null || player.Creature.IsDead)
+        {
+            return;
+        }
+        if (CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(player))
+        {
+            Observability.EventLog.Write("mod", "phantom_wake_up", new { netId = player.NetId, turnNumber = player.PlayerCombatState.TurnNumber });
+            Enqueue(new UndoEndPlayerTurnAction(player, player.PlayerCombatState.TurnNumber));
+        }
+        else
+        {
+            session.BuddySequencePhase = BuddyPhase.Acting; // never ended — straight to acting
+        }
+    }
+
+    /// <summary>Debug autopilot for the local player: play one card per tick, then end turn, then trigger the buddies.</summary>
     public static void DriveAutoplay(Player player, RunState state)
     {
         if (!InPlayPhase)
@@ -153,24 +220,10 @@ public static class CombatDriver
         {
             return;
         }
-        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
-        if (readyToEnd.Contains(player))
+        if (CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(player))
         {
-            // Autopilot trigger: buddies act after the host's own turn has ended.
-            if (PhantomSession.Current is { } session && state.Players.Any(p => session.IsPhantom(p.NetId)))
-            {
-                foreach (PhantomDescriptor phantom in session.Phantoms)
-                {
-                    Player? buddy = state.GetPlayer(phantom.NetId);
-                    if (buddy != null
-                        && !buddy.Creature.IsDead
-                        && !readyToEnd.Contains(buddy)
-                        && !session.ArmedPhantoms.ContainsKey(buddy.NetId))
-                    {
-                        ArmOrWake(buddy);
-                    }
-                }
-            }
+            // Autopilot trigger: buddies act after the host's own turn has ended. Same door.
+            TriggerSequence(state);
             return;
         }
         if (TrivialPolicy.PickCombatAction(player) is { } play)
