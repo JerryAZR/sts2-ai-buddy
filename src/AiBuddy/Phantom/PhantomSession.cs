@@ -39,6 +39,8 @@ public sealed class PhantomSession
     public HashSet<EventModel> ProceededEvents { get; } = new();
     /// <summary>NetId → combat turn number for which the host armed the phantom to act (the "Buddy: act" button).</summary>
     public Dictionary<ulong, int> ArmedPhantoms { get; } = new();
+    /// <summary>Buddies with an UndoEndPlayerTurnAction enqueued but not yet executed — guards against duplicate wake-ups.</summary>
+    public HashSet<ulong> PendingWakeUps { get; } = new();
 
     private PhantomSession(INetGameService? netService) => _netService = netService;
 

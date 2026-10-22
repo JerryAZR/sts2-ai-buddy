@@ -35,9 +35,7 @@ public static class OverlayDrainDriver
         NChooseABundleSelectionScreen? bundleScreen = stack?.Peek() as NChooseABundleSelectionScreen;
         if (bundleScreen == null)
         {
-            bundleScreen = NRun.Instance?.GetTree().Root
-                .FindChildren(nameof(NChooseABundleSelectionScreen), nameof(NChooseABundleSelectionScreen), true, false)
-                .OfType<NChooseABundleSelectionScreen>().FirstOrDefault();
+            bundleScreen = NRun.Instance?.GetTree().Root is { } root ? FindAll<NChooseABundleSelectionScreen>(root).FirstOrDefault() : null;
         }
         if (bundleScreen == null)
         {
@@ -47,8 +45,7 @@ public static class OverlayDrainDriver
         long id = bundleScreen.GetInstanceId().GetHashCode(); // stable enough for a two-tick interaction
         if (!_selectedIn.Contains(id))
         {
-            NCardBundle? bundle = bundleScreen.FindChildren("*", nameof(NCardBundle), true, false)
-                .OfType<NCardBundle>().FirstOrDefault();
+            NCardBundle? bundle = FindAll<NCardBundle>(bundleScreen).FirstOrDefault();
             if (bundle?.Hitbox != null)
             {
                 bundle.Hitbox.ForceClick();
@@ -61,13 +58,32 @@ public static class OverlayDrainDriver
             }
             return;
         }
-        NClickableControl? confirm = bundleScreen.FindChildren("*", nameof(NConfirmButton), true, false)
-            .OfType<NClickableControl>().FirstOrDefault();
+        NClickableControl? confirm = FindAll<NClickableControl>(bundleScreen)
+            .FirstOrDefault(c => c.GetType().Name == nameof(NConfirmButton));
         if (confirm != null)
         {
             confirm.ForceClick();
             _selectedIn.Remove(id);
             Observability.EventLog.Write("mod", "autopilot_bundle_confirmed");
         }
+    }
+
+    /// <summary>Recursive is-T tree walk (AutoSlay UiHelper.FindAll pattern) — FindChildren's type filter doesn't match C# script classes.</summary>
+    private static List<T> FindAll<T>(Node root) where T : Node
+    {
+        var found = new List<T>();
+        void Walk(Node node)
+        {
+            if (node is T match)
+            {
+                found.Add(match);
+            }
+            foreach (Node child in node.GetChildren())
+            {
+                Walk(child);
+            }
+        }
+        Walk(root);
+        return found;
     }
 }

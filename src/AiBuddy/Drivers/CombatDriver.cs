@@ -1,6 +1,5 @@
 using AiBuddy.Phantom;
 using AiBuddy.Policy;
-using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions;
@@ -10,14 +9,21 @@ using MegaCrit.Sts2.Core.Runs;
 namespace AiBuddy.Drivers;
 
 /// <summary>
-/// Phantom combat control (design §3.5, amended): phantoms HOLD their end-turn
-/// while the local host player is still playing; when the host ends their turn,
-/// phantoms take their turns in registration order (one card per tick, seeing each
-/// other's results), then end promptly. The "Buddy: act" button remains for manual
-/// mid-turn triggers and wake-ups (e.g. after a buddy gained cards).
+/// Phantom combat control (design §3.5). Buddies HOLD their end-turn while unarmed —
+/// the host controls turn pacing entirely. Triggers:
+///  1. the host-only "Buddy: act" button (arms all buddies; wakes ended ones);
+///  2. optional auto-act-on-host-end (AIBUDDY_AUTO_ACT_ON_HOST_END=1 for now);
+///  3. the debug autopilot, which triggers after ending its own turn.
+/// Armed buddies act in registration order — buddy N+1 waits for buddy N to end
+/// its turn, so each sees the previous one's results. One card per tick (fresh
+/// state per pick). An exhausted buddy disarms and ends its turn. Re-triggering an
+/// ended buddy wakes it via the vanilla UndoEndPlayerTurnAction.
 /// </summary>
 public static class CombatDriver
 {
+    private static readonly bool AutoActOnHostEnd =
+        System.Environment.GetEnvironmentVariable("AIBUDDY_AUTO_ACT_ON_HOST_END") == "1";
+
     private static bool InPlayPhase =>
         RunManager.Instance.ActionQueueSynchronizer.CombatState == ActionSynchronizerCombatState.PlayPhase;
 
@@ -34,33 +40,40 @@ public static class CombatDriver
         {
             return;
         }
-        if (CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(player))
+        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
+        if (readyToEnd.Contains(player))
         {
             session.ArmedPhantoms.Remove(player.NetId);
-            return; // turn ended; only the host button (wake-up) can change that
+            return; // turn ended; only a trigger (wake-up) can change that
         }
+        session.PendingWakeUps.Remove(player.NetId); // wake-up (if any) has landed
 
         int turnNumber = combat.TurnNumber;
 
-        // Auto-arm once the local host player has ended their turn (buddies act after the host).
-        if (!session.ArmedPhantoms.ContainsKey(player.NetId))
+        // Arms are per-turn: a stale arm from an earlier turn never carries over.
+        if (session.ArmedPhantoms.TryGetValue(player.NetId, out int armedTurn) && armedTurn != turnNumber)
         {
-            Player? host = LocalContext.GetMe(state);
-            bool hostEnded = host != null && CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(host);
-            if (!hostEnded)
-            {
-                return; // hold: wait for the host's turn to finish
-            }
-            session.ArmedPhantoms[player.NetId] = turnNumber;
+            session.ArmedPhantoms.Remove(player.NetId);
         }
 
-        if (session.ArmedPhantoms[player.NetId] != turnNumber)
+        // Optional trigger: auto-act when the local host player ends their turn.
+        // Same door as the button and the autopilot: ArmOrWake owns arming rules.
+        if (AutoActOnHostEnd && !session.ArmedPhantoms.ContainsKey(player.NetId))
         {
-            Enqueue(new EndPlayerTurnAction(player, turnNumber)); // stale arm from an earlier turn
+            Player? host = MegaCrit.Sts2.Core.Context.LocalContext.GetMe(state);
+            if (host != null && readyToEnd.Contains(host))
+            {
+                ArmOrWake(player);
+            }
+        }
+
+        // Unarmed buddies hold — the host decides when (and whether) they act.
+        if (!session.ArmedPhantoms.ContainsKey(player.NetId))
+        {
             return;
         }
 
-        // Sequencing: wait for earlier-registered armed phantoms to finish their turns.
+        // Sequencing: wait for earlier-registered armed buddies to finish their turns.
         foreach (PhantomDescriptor earlier in session.Phantoms)
         {
             if (earlier.NetId == player.NetId)
@@ -71,7 +84,7 @@ public static class CombatDriver
             if (earlierPlayer != null
                 && session.ArmedPhantoms.ContainsKey(earlier.NetId)
                 && !earlierPlayer.Creature.IsDead
-                && !CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(earlierPlayer))
+                && !readyToEnd.Contains(earlierPlayer))
             {
                 return; // earlier buddy is still taking its turn
             }
@@ -86,11 +99,19 @@ public static class CombatDriver
         }
 
         // Nothing playable: disarm and end the turn.
+        // Known benign race: a re-trigger landing while this EndPlayerTurnAction is
+        // still queued plays the new cards AFTER the end-turn commit (queue order).
+        // The buddy ends its turn having played them — acceptable, no stall.
         session.ArmedPhantoms.Remove(player.NetId);
         Enqueue(new EndPlayerTurnAction(player, turnNumber));
     }
 
-    /// <summary>Host button: arm the phantom to take its turn, waking it (undo end-turn) if needed.</summary>
+    /// <summary>
+    /// The single door for all triggers (button, autopilot, auto-act option).
+    /// Guards: no-op if the buddy is already armed this turn; no duplicate wake
+    /// while one is in flight; arms are per-turn. A trigger arriving after all
+    /// buddies ended is the intended wake-and-replay path (design §3.5 point 4).
+    /// </summary>
     public static void ArmOrWake(Player player)
     {
         if (PhantomSession.Current is not { } session)
@@ -103,15 +124,24 @@ public static class CombatDriver
             return;
         }
         int turnNumber = player.PlayerCombatState.TurnNumber;
-        if (CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(player))
+        if (session.ArmedPhantoms.TryGetValue(player.NetId, out int existing) && existing == turnNumber)
         {
+            return; // already taking its turn — re-trigger mid-turn is a no-op
+        }
+        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
+        if (readyToEnd.Contains(player))
+        {
+            if (!session.PendingWakeUps.Add(player.NetId))
+            {
+                return; // a wake-up is already in flight (e.g. button + autopilot both triggered)
+            }
             Observability.EventLog.Write("mod", "phantom_wake_up", new { netId = player.NetId, turnNumber });
             Enqueue(new UndoEndPlayerTurnAction(player, turnNumber));
         }
         session.ArmedPhantoms[player.NetId] = turnNumber;
     }
 
-    /// <summary>Debug autopilot for the local player: play one card per tick, then end turn.</summary>
+    /// <summary>Debug autopilot for the local player: play one card per tick, then end turn, then trigger buddies.</summary>
     public static void DriveAutoplay(Player player, RunState state)
     {
         if (!InPlayPhase)
@@ -123,8 +153,24 @@ public static class CombatDriver
         {
             return;
         }
-        if (CombatStateProbe.PlayersReadyToEndTurn(turn).Contains(player))
+        var readyToEnd = CombatStateProbe.PlayersReadyToEndTurn(turn);
+        if (readyToEnd.Contains(player))
         {
+            // Autopilot trigger: buddies act after the host's own turn has ended.
+            if (PhantomSession.Current is { } session && state.Players.Any(p => session.IsPhantom(p.NetId)))
+            {
+                foreach (PhantomDescriptor phantom in session.Phantoms)
+                {
+                    Player? buddy = state.GetPlayer(phantom.NetId);
+                    if (buddy != null
+                        && !buddy.Creature.IsDead
+                        && !readyToEnd.Contains(buddy)
+                        && !session.ArmedPhantoms.ContainsKey(buddy.NetId))
+                    {
+                        ArmOrWake(buddy);
+                    }
+                }
+            }
             return;
         }
         if (TrivialPolicy.PickCombatAction(player) is { } play)
