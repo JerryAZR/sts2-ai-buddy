@@ -48,6 +48,14 @@ public sealed class PhantomSession
     public Drivers.CombatDriver.BuddyPhase BuddySequencePhase { get; set; }
     /// <summary>Plan-execution state for the buddy currently acting (null when Waking/Ending or no sequence).</summary>
     public Drivers.BuddyTurnExecution? CurrentBuddyTurn { get; set; }
+    /// <summary>Phantom reward sets being driven (RewardsDriver), keyed by NetId; a STACK per player — the synchronizer applies selections to the top set regardless of setId, so we drive the top and pop on completion.</summary>
+    public Dictionary<ulong, List<MegaCrit.Sts2.Core.Rewards.RewardsSet>> ActiveRewardSets { get; } = new();
+    /// <summary>Rewards already selected in a set (a skipped card reward never becomes SuccessfullySelected — track attempts, not success). Keyed by set object: per-netId flags leak across sets.</summary>
+    public Dictionary<MegaCrit.Sts2.Core.Rewards.RewardsSet, HashSet<MegaCrit.Sts2.Core.Rewards.Reward>> RewardAttempts { get; } = new();
+    /// <summary>Sets for which the close-out skip message has been sent.</summary>
+    public HashSet<MegaCrit.Sts2.Core.Rewards.RewardsSet> RewardSkipSent { get; } = new();
+    /// <summary>Debug autopilot: the local player's offered reward set (drained by skipping).</summary>
+    public MegaCrit.Sts2.Core.Rewards.RewardsSet? LocalAutoplayRewardSet { get; set; }
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 

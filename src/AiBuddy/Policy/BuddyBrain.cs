@@ -38,6 +38,9 @@ public sealed record PlannedPlay(int HandIndex, string CardId, uint? TargetComba
 /// <summary>What happened to one executed play.</summary>
 public sealed record PlayOutcome(string CardId, bool Success, string? RejectionReason);
 
+/// <summary>One removable-card option for the card-removal brain decision.</summary>
+public sealed record RemovalOption(string CardId, bool IsCurseOrStatus);
+
 // ===== Views (control layer → brain; detached data) =====
 
 /// <summary>One player's run-level state (save-schema coverage).</summary>

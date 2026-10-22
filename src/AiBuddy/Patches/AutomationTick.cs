@@ -100,6 +100,7 @@ internal static class AutomationTick
                 {
                     SafeDrive("EventDriver", () => EventDriver.Drive(player, state));
                     SafeDrive("MapDriver", () => MapDriver.Drive(player, state));
+                    SafeDrive("RewardsDriver", () => RewardsDriver.Drive(player, state));
                 }
             }
             SafeDrive("CombatDriver", () => CombatDriver.DriveSequence(state));
@@ -109,6 +110,7 @@ internal static class AutomationTick
         {
             EnsureLocalSelector();
             OverlayDrainDriver.Tick();
+            DrainLocalRewards(run);
             Player? me = LocalContext.GetMe(state);
             if (me != null)
             {
@@ -119,6 +121,7 @@ internal static class AutomationTick
         }
 
         NeowRelicTestDriver.Tick(state);
+        CombatChoiceTestDriver.Tick(state);
 
         // Heartbeat every 10s so a silent tick is distinguishable from a quiet game.
         if (++_tickCount % 20 == 0)
@@ -136,6 +139,23 @@ internal static class AutomationTick
         }
 
         TraceEventStates(run);
+    }
+
+    /// <summary>Debug autopilot: the host's reward screen blocks map progress — drain it by skipping (same call the skip button makes).</summary>
+    private static void DrainLocalRewards(RunManager run)
+    {
+        if (PhantomSession.Current?.LocalAutoplayRewardSet is not { } set)
+        {
+            return;
+        }
+        if (run.RewardsSetSynchronizer.IsRewardsSetCompleted(set))
+        {
+            PhantomSession.Current.LocalAutoplayRewardSet = null;
+            return;
+        }
+        Observability.EventLog.Write("mod", "autopilot_rewards_skip", new { setId = set.Id });
+        run.RewardsSetSynchronizer.SkipLocalRewardsSet();
+        PhantomSession.Current.LocalAutoplayRewardSet = null;
     }
 
     private static void SafeDrive(string driverName, Action action)

@@ -1,6 +1,7 @@
 using System.Reflection;
 using AiBuddy.Phantom;
 using AiBuddy.Policy;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
@@ -23,10 +24,14 @@ public static class ChoiceDriver
 {
     public enum PromptKind { Index, Indexes, CombatCards, DeckCards, PlayerId }
 
+    /// <summary>What the prompt is FOR — lets the brain apply purpose-specific decisions (card rewards, removal) instead of one generic pick.</summary>
+    public enum PromptPurpose { Generic, CardReward, CardRemoval }
+
     public sealed record PendingPrompt(PromptKind Kind, IReadOnlyList<CardModel> Options, int MinSelect, int MaxSelect, bool Cancelable)
     {
         /// <summary>Number of offered choices. Defaults to Options.Count; set explicitly for non-card index prompts (e.g. relic selects).</summary>
         public int OptionCount { get; init; } = Options.Count;
+        public PromptPurpose Purpose { get; init; } = PromptPurpose.Generic;
     }
 
     private static readonly MethodInfo OnReceivePlayerChoice =
@@ -65,12 +70,13 @@ public static class ChoiceDriver
         {
             result = prompt.Kind switch
             {
-                PromptKind.Index => PlayerChoiceResult.FromIndex(TrivialPolicy.PickIndex(prompt.OptionCount)),
+                PromptKind.Index => PlayerChoiceResult.FromIndex(prompt.Purpose == PromptPurpose.CardReward
+                    ? TrivialPolicy.PickCardReward(prompt.OptionCount, player.Deck.Cards.Count)
+                    : TrivialPolicy.PickIndex(prompt.OptionCount)),
                 PromptKind.Indexes => FromIndexes(prompt),
                 PromptKind.CombatCards => PickCards(prompt) is { } combatCards
                     ? PlayerChoiceResult.FromMutableCombatCards(combatCards) : null,
-                PromptKind.DeckCards => PickCards(prompt) is { } deckCards
-                    ? PlayerChoiceResult.FromMutableDeckCards(deckCards) : null,
+                PromptKind.DeckCards => FabricateDeckCards(player, prompt),
                 PromptKind.PlayerId => PlayerChoiceResult.FromPlayerId(null), // trivial: mend nobody
                 _ => throw new ArgumentOutOfRangeException(),
             };
@@ -118,6 +124,23 @@ public static class ChoiceDriver
             Observability.EventLog.Write("mod", "pending_choice_dropped", new { netId = stale.Key, kind = stale.Value.Kind.ToString() });
         }
         session.PendingChoices.Clear();
+    }
+
+    /// <summary>DeckCards fabrication. CardRemoval purpose uses the removal brain rule (curses → strikes → defends → don't remove); a mandatory removal with no candidate falls back to the first card, loudly.</summary>
+    private static PlayerChoiceResult? FabricateDeckCards(Player player, PendingPrompt prompt)
+    {
+        if (prompt.Purpose == PromptPurpose.CardRemoval)
+        {
+            int? removal = TrivialPolicy.PickCardRemoval(prompt.Options
+                .Select(c => new RemovalOption(c.Id.Entry, c.Type is CardType.Curse or CardType.Status)).ToList());
+            if (removal == null && !prompt.Cancelable && prompt.Options.Count > 0)
+            {
+                Log.Warn($"[AiBuddy] Mandatory card removal for phantom {player.NetId} has no curse/strike/defend candidate — removing the first card.");
+                removal = 0;
+            }
+            return PlayerChoiceResult.FromMutableDeckCards(removal is int ri ? new[] { prompt.Options[ri] } : Array.Empty<CardModel>());
+        }
+        return PickCards(prompt) is { } deckCards ? PlayerChoiceResult.FromMutableDeckCards(deckCards) : null;
     }
 
     private static PlayerChoiceResult? FromIndexes(PendingPrompt prompt)

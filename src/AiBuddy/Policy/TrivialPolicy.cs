@@ -16,7 +16,53 @@ public static class TrivialPolicy
     /// Relics whose obtain-flow opens a reward-set screen we can't fabricate yet (M2 subset carve-out).
     /// Empirically verified by NeowRelicTestDriver; M3 RewardsSet fabrication unblocks all four.
     /// </summary>
-    internal static readonly HashSet<string> DeferredRewardRelics = new() { "LOST_COFFER", "KALEIDOSCOPE", "NEOWS_BONES", "SMALL_CAPSULE" };
+    internal static readonly HashSet<string> DeferredRewardRelics = new(); // empty since M3 rewards fabrication landed
+
+    /// <summary>
+    /// Host-side decision randomness. Never touches the game's RNG streams — the
+    /// fabricated RESULT enters the sim identically on every peer, the dice roll
+    /// itself is not sim state.
+    /// </summary>
+    private static readonly Random Rng = new();
+
+    /// <summary>Card reward (user-locked trivial rule): deck below 20 → take a random card; at 20+ → 25% skip, else random.</summary>
+    public static int? PickCardReward(int optionCount, int deckCount)
+    {
+        if (optionCount <= 0)
+        {
+            return null;
+        }
+        if (deckCount < 20)
+        {
+            return Rng.Next(optionCount);
+        }
+        return Rng.Next(4) == 0 ? null : Rng.Next(optionCount);
+    }
+
+    /// <summary>Card removal (user-locked trivial rule): curses/statuses first, then Strikes, then Defends, else don't remove (null).</summary>
+    public static int? PickCardRemoval(IReadOnlyList<RemovalOption> options)
+    {
+        for (int i = 0; i < options.Count; i++)
+        {
+            if (options[i].IsCurseOrStatus)
+            {
+                return i;
+            }
+        }
+        int strike = -1, defend = -1;
+        for (int i = 0; i < options.Count; i++)
+        {
+            if (strike < 0 && options[i].CardId.StartsWith("STRIKE"))
+            {
+                strike = i;
+            }
+            if (defend < 0 && options[i].CardId.StartsWith("DEFEND"))
+            {
+                defend = i;
+            }
+        }
+        return strike >= 0 ? strike : defend >= 0 ? defend : null;
+    }
 
     /// <summary>
     /// Combat turn: greedy full-hand batch with a locally simulated energy budget.

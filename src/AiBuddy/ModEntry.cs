@@ -33,6 +33,8 @@ public static class ModEntry
         typeof(Patches.RelicPromptCapturePatch),
         typeof(Patches.MendPromptCapturePatch),
         typeof(Patches.CardRewardPromptCapturePatch),
+        typeof(Patches.RewardsSetOfferPatch),
+        typeof(Patches.ChoiceResumePatch),
         typeof(Patches.PhantomSendGuardPatch),
         typeof(Patches.PhantomEnemyTurnReadyPatch),
         typeof(Patches.PlayCardCancelPatch),
@@ -75,6 +77,7 @@ public static class ModEntry
         "CardSelectCmd.FromChooseABundleScreen",
         "ReadyToBeginEnemyTurnAction.ExecuteAction",
         "PlayCardAction.CancelAction",
+        "GameActionPlayerChoiceContext.SignalPlayerChoiceEnded",
         "NCombatRoom._Ready",
     };
 

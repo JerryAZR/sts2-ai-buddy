@@ -103,6 +103,10 @@ internal static class CardPromptCapturePatches
     [HarmonyPatch(typeof(CardSelectCmd), nameof(CardSelectCmd.FromDeckGeneric))]
     private static void DeckGeneric(Player player, CardSelectorPrefs prefs, Func<CardModel, bool>? filter)
     {
+        if (_removalCaptureActive)
+        {
+            return; // FromDeckForRemoval delegates here — its own capture already recorded the removal purpose
+        }
         IEnumerable<CardModel> offered = PileType.Deck.GetPile(player).Cards;
         if (filter != null)
         {
@@ -110,6 +114,30 @@ internal static class CardPromptCapturePatches
         }
         CaptureDeckCards(player, offered, prefs);
     }
+
+    // FromDeckForRemoval delegates to FromDeckGeneric; the guard prevents the generic
+    // capture from overwriting the removal-purpose one. Static bool is safe: the game
+    // loop is single-threaded and the flag spans one synchronous delegation.
+    private static bool _removalCaptureActive;
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(CardSelectCmd), nameof(CardSelectCmd.FromDeckForRemoval))]
+    private static void DeckRemovalPrefix(Player player, CardSelectorPrefs prefs, Func<CardModel, bool>? filter)
+    {
+        _removalCaptureActive = true;
+        IEnumerable<CardModel> offered = PileType.Deck.GetPile(player).Cards;
+        if (filter != null)
+        {
+            offered = offered.Where(filter);
+        }
+        ChoiceDriver.Capture(player.NetId, new ChoiceDriver.PendingPrompt(
+            ChoiceDriver.PromptKind.DeckCards, offered.ToList(), prefs.MinSelect, prefs.MaxSelect, prefs.Cancelable)
+        { Purpose = ChoiceDriver.PromptPurpose.CardRemoval });
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(CardSelectCmd), nameof(CardSelectCmd.FromDeckForRemoval))]
+    private static void DeckRemovalPostfix() => _removalCaptureActive = false;
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(CardSelectCmd), nameof(CardSelectCmd.FromDeckForUpgrade))]
@@ -170,5 +198,6 @@ internal static class CardRewardPromptCapturePatch
 {
     private static void Prefix(CardReward __instance)
         => ChoiceDriver.Capture(__instance.Player.NetId, new ChoiceDriver.PendingPrompt(
-            ChoiceDriver.PromptKind.Index, __instance.Cards.ToList(), 0, 1, true));
+            ChoiceDriver.PromptKind.Index, __instance.Cards.ToList(), 0, 1, true)
+        { Purpose = ChoiceDriver.PromptPurpose.CardReward });
 }

@@ -155,9 +155,12 @@ public class PolicyTests
     }
 
     [Fact]
-    public void PickEventOption_SkipsDeferredRewardRelics()
+    public void PickEventOption_NoDeferredRelics_SinceRewardsFabrication()
     {
-        Assert.Equal(1, TrivialPolicy.PickEventOption(new EventView("EV", new[] { Opt(0, relic: "LOST_COFFER"), Opt(1) })));
+        // The four reward-set Neow relics were deferred until M3 rewards fabrication;
+        // with RewardsDriver landed, nothing is deferred and the option is taken.
+        Assert.Empty(TrivialPolicy.DeferredRewardRelics);
+        Assert.Equal(0, TrivialPolicy.PickEventOption(new EventView("EV", new[] { Opt(0, relic: "LOST_COFFER"), Opt(1) })));
     }
 
     [Fact]

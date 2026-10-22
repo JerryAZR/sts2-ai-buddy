@@ -34,6 +34,9 @@ public static class CombatDriver
     /// <summary>Phase of the current buddy: Waking = wake enqueued, waiting for it to land; Acting = brain-driven plays; Ending = end-turn enqueued, waiting to land.</summary>
     public enum BuddyPhase { Waking, Acting, Ending }
 
+    /// <summary>Fired for every settled play (both phantoms and the autopilot) — test drivers subscribe.</summary>
+    public static event System.Action<ulong, PlayOutcome>? PlayOutcomeObserved;
+
     private static readonly bool AutoActOnHostEnd =
         System.Environment.GetEnvironmentVariable("AIBUDDY_AUTO_ACT_ON_HOST_END") == "1";
 
@@ -183,13 +186,14 @@ public static class CombatDriver
                 if (++exec.TicksInFlight >= exec.NextSlowReportTicks)
                 {
                     Log.Warn($"[AiBuddy] Play of {exec.InFlightCard?.Id.Entry} by {player.NetId} unsettled after ~{exec.TicksInFlight / 2}s " +
-                             $"(queuePaused={queue.ActionQueueIsPaused(player.NetId)}). Slow combo or hang — wait tracer has details.");
+                             $"(queuePaused={queue.ActionQueueIsPaused(player.NetId)}, actionState={exec.InFlight.State}). Slow combo or hang — wait tracer has details.");
                     Observability.EventLog.Write("mod", "play_settle_slow", new
                     {
                         netId = player.NetId,
                         card = exec.InFlightCard?.Id.Entry,
                         ticksInFlight = exec.TicksInFlight,
                         queuePaused = queue.ActionQueueIsPaused(player.NetId),
+                        actionState = exec.InFlight.State.ToString(),
                     });
                     exec.NextSlowReportTicks *= 2;
                 }
@@ -213,6 +217,7 @@ public static class CombatDriver
             }
             exec.Outcomes.Add(new PlayOutcome(card.Id.Entry, success, reason));
             Observability.EventLog.Write("mod", "play_outcome", new { netId = player.NetId, card = card.Id.Entry, success, reason });
+            PlayOutcomeObserved?.Invoke(player.NetId, exec.Outcomes[^1]);
             exec.ClearInFlight();
         }
 
