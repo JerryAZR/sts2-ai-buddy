@@ -78,11 +78,10 @@ public static class PhantomLobbyService
 
         // Tell any connected guests. Broadcast fans out to connected peers only,
         // so this is a safe no-op in a host-only loopback session.
-        // KNOWN GAP (M7): sender id on these is the host's, not the phantom's —
-        // forged-sender sends land with the Steam transport work. The ready message
-        // carries no player id, so guests would misread it as the HOST re-readying.
         lobby.NetService.SendMessage(new PlayerJoinedMessage { lobbyPlayer = player });
-        lobby.NetService.SendMessage(new LobbyPlayerSetReadyMessage { ready = true });
+        // The ready message carries no player id (sender is inferred) — it MUST be
+        // forged with the phantom as wire sender, or guests misread it as the host.
+        PhantomNet.BroadcastAsPhantom(descriptor.NetId, new LobbyPlayerSetReadyMessage { ready = true });
 
         Observability.EventLog.Write("mod", "phantom_added", new
         {

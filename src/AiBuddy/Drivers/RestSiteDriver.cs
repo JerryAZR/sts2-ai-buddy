@@ -85,8 +85,13 @@ public static class RestSiteDriver
                 },
                 player.NetId,
             });
-            // TODO(M7): the fabricated choice must also reach guests — check whether the
-            // handler broadcasts or whether we need a forged-sender send.
+            // M7: the same choice must reach guests (sender = phantom).
+            PhantomNet.BroadcastAsPhantom(player.NetId, new OptionIndexChosenMessage
+            {
+                type = OptionIndexType.RestSite,
+                optionIndex = (uint)index,
+                location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
+            });
         }
     }
 }

@@ -58,6 +58,13 @@ internal static class CombatSyncPhantomPatch
             }
             syncData[phantom.NetId] = player.ToSerializable();
             EventLog.Write("mod", "sync_injected", new { netId = phantom.NetId });
+            // M7: guests await the phantom's SyncPlayerDataMessage too — forge it with
+            // the phantom as wire sender (a host-stamped broadcast would be discarded
+            // as a duplicate of the host's own). No-op when there are no guests.
+            PhantomNet.BroadcastAsPhantom(phantom.NetId, new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.SyncPlayerDataMessage
+            {
+                player = player.ToSerializable(),
+            });
         }
         CheckCompleted.Invoke(__instance, null);
     }

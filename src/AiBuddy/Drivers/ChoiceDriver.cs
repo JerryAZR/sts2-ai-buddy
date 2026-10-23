@@ -103,7 +103,12 @@ public static class ChoiceDriver
 
         Observability.EventLog.Write("mod", "choice_fabricated", new { netId = player.NetId, choiceId, result = result.ToString() });
         OnReceivePlayerChoice.Invoke(synchronizer, new object[] { player, choiceId, result.ToNetData() });
-        // TODO(M7): broadcast forged-sender PlayerChoiceMessage so guests resolve their waiters too.
+        // M7: guests' waiters resolve on the forged wire message (sender = phantom).
+        PhantomNet.BroadcastAsPhantom(player.NetId, new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.PlayerChoiceMessage
+        {
+            choiceId = choiceId,
+            result = result.ToNetData(),
+        });
     }
 
     /// <summary>

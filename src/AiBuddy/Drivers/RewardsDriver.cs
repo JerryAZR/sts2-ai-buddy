@@ -82,11 +82,13 @@ public static class RewardsDriver
             else
             {
                 Observability.EventLog.Write("mod", "phantom_rewards_skip_rest", new { netId = player.NetId, setId = set.Id });
-                sync.HandleRewardSetSkippedMessage(new RewardSetSkippedMessage
+                var skippedMessage = new RewardSetSkippedMessage
                 {
                     location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
                     setId = set.Id,
-                }, player.NetId);
+                };
+                sync.HandleRewardSetSkippedMessage(skippedMessage, player.NetId);
+                PhantomNet.BroadcastAsPhantom(player.NetId, skippedMessage); // M7: guests close the phantom's set too
             }
             session.RewardSkipSent.Add(set);
             return;
@@ -112,12 +114,14 @@ public static class RewardsDriver
         }
         else
         {
-            sync.HandleRewardSelectedMessage(new RewardSelectedMessage
+            var selectedMessage = new RewardSelectedMessage
             {
                 location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
                 setId = set.Id,
                 rewardIndex = set.Rewards.IndexOf(next),
-            }, player.NetId);
+            };
+            sync.HandleRewardSelectedMessage(selectedMessage, player.NetId);
+            PhantomNet.BroadcastAsPhantom(player.NetId, selectedMessage); // M7
         }
     }
 

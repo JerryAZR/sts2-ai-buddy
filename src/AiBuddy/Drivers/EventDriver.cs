@@ -93,8 +93,13 @@ public static class EventDriver
         else
         {
             ChooseOptionForEvent.Invoke(sync, new object[] { player, index });
-            // TODO(M7): broadcast forged-sender OptionIndexChosenMessage so guests
-            // re-execute the phantom's event choice. No-op in loopback (no guests).
+            // M7: guests re-execute the phantom's event choice from the forged wire message.
+            PhantomNet.BroadcastAsPhantom(player.NetId, new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.OptionIndexChosenMessage
+            {
+                type = MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.OptionIndexType.Event,
+                optionIndex = (uint)index,
+                location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
+            });
         }
     }
 }
