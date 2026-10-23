@@ -25,6 +25,22 @@ public static class TrivialPolicy
     /// </summary>
     private static readonly Random Rng = new();
 
+    /// <summary>Rest site (user-locked trivial rule): HP below half → heal; otherwise a random other option. Ally-targeting options (Mend) are excluded — their local flow needs a target UI the trivial brain can't answer (brain-worthy later).</summary>
+    public static int? PickRestSiteOption(int currentHp, int maxHp, IReadOnlyList<RestSiteOptionView> options)
+    {
+        RestSiteOptionView? heal = options.FirstOrDefault(o => o.OptionId == "HEAL");
+        if (currentHp * 2 < maxHp && heal != null)
+        {
+            return heal.Index;
+        }
+        var others = options.Where(o => o.OptionId != "HEAL" && !o.NeedsAllyTarget).ToList();
+        if (others.Count > 0)
+        {
+            return others[Rng.Next(others.Count)].Index;
+        }
+        return heal?.Index; // only heal left — take it
+    }
+
     /// <summary>Card reward (user-locked trivial rule): deck below 20 → take a random card; at 20+ → 25% skip, else random.</summary>
     public static int? PickCardReward(int optionCount, int deckCount)
     {

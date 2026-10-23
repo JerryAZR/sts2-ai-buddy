@@ -41,6 +41,9 @@ public sealed record PlayOutcome(string CardId, bool Success, string? RejectionR
 /// <summary>One removable-card option for the card-removal brain decision.</summary>
 public sealed record RemovalOption(string CardId, bool IsCurseOrStatus);
 
+/// <summary>One rest-site option for the rest-site brain decision. NeedsAllyTarget: options whose local flow opens ally targeting (Mend) — the trivial brain never picks them.</summary>
+public sealed record RestSiteOptionView(int Index, string OptionId, bool NeedsAllyTarget);
+
 // ===== Views (control layer → brain; detached data) =====
 
 /// <summary>One player's run-level state (save-schema coverage).</summary>

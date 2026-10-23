@@ -35,6 +35,7 @@ public static class ModEntry
         typeof(Patches.CardRewardPromptCapturePatch),
         typeof(Patches.RewardsSetOfferPatch),
         typeof(Patches.ChoiceResumePatch),
+        typeof(Patches.RestSiteCapturePatch),
         typeof(Patches.PhantomSendGuardPatch),
         typeof(Patches.PhantomEnemyTurnReadyPatch),
         typeof(Patches.PlayCardCancelPatch),
@@ -60,6 +61,8 @@ public static class ModEntry
         typeof(Drivers.CombatStateProbe),
         typeof(Drivers.EventDriver),
         typeof(Patches.MendPromptCapturePatch),
+        typeof(Drivers.RestSiteDriver),
+        typeof(Patches.RestSiteCapturePatch),
     };
 
     /// <summary>Game methods every build expects to have patched (DeclaringType.MethodName).</summary>
@@ -78,6 +81,7 @@ public static class ModEntry
         "ReadyToBeginEnemyTurnAction.ExecuteAction",
         "PlayCardAction.CancelAction",
         "GameActionPlayerChoiceContext.SignalPlayerChoiceEnded",
+        "RestSiteSynchronizer.BeginRestSite",
         "NCombatRoom._Ready",
     };
 

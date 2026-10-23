@@ -40,8 +40,8 @@ public static class MapDriver
         Player? host = LocalContext.GetMe(state);
         MapCoord? hostVote = host == null ? null : sync.GetVote(host)?.coord;
         List<MapCoord> legalDestinations = state.CurrentMapCoord is { } current
-            ? state.Map.GetPoint(current)?.Children.Select(c => c.coord).ToList() ?? new List<MapCoord>()
-            : state.Map.GetPointsInRow(0).Select(p => p.coord).ToList();
+            ? state.Map.GetPoint(current)?.Children.OrderBy(c => c.coord.col).Select(c => c.coord).ToList() ?? new List<MapCoord>()
+            : state.Map.GetPointsInRow(0).OrderBy(p => p.coord.col).Select(p => p.coord).ToList();
         MapCoord? destination = TrivialPolicy.PickMapDestination(
             new MapPickView(!LocalContext.IsMe(player), hostVote, legalDestinations));
         if (destination == null)

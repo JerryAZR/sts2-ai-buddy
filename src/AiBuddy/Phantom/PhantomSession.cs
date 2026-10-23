@@ -54,8 +54,16 @@ public sealed class PhantomSession
     public Dictionary<MegaCrit.Sts2.Core.Rewards.RewardsSet, HashSet<MegaCrit.Sts2.Core.Rewards.Reward>> RewardAttempts { get; } = new();
     /// <summary>Sets for which the close-out skip message has been sent.</summary>
     public HashSet<MegaCrit.Sts2.Core.Rewards.RewardsSet> RewardSkipSent { get; } = new();
-    /// <summary>Debug autopilot: the local player's offered reward set (drained by skipping).</summary>
+    /// <summary>Debug autopilot: the local player's offered reward set (driven by RewardsDriver like a buddy's).</summary>
     public MegaCrit.Sts2.Core.Rewards.RewardsSet? LocalAutoplayRewardSet { get; set; }
+    /// <summary>The brain's card-reward pick for the local player — the screen drain clicks this card.</summary>
+    public MegaCrit.Sts2.Core.Models.CardModel? LocalCardPick { get; set; }
+    /// <summary>Rest-site option lists per player (live references into the synchronizer — removals are visible). Captured by RestSiteCapturePatch.</summary>
+    public Dictionary<ulong, List<MegaCrit.Sts2.Core.Entities.RestSite.RestSiteOption>> RestSiteOptions { get; } = new();
+    /// <summary>Rest-site option ids already attempted per player (failed options are never retried — termination guarantee).</summary>
+    public Dictionary<ulong, HashSet<string>> RestSiteAttempts { get; } = new();
+    /// <summary>Debug autopilot: local rest site finished, waiting for the drain to click the room's proceed button.</summary>
+    public bool LocalRestSitePendingProceed { get; set; }
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 
