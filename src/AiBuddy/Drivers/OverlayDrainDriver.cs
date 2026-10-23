@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.GameOverScreen;
@@ -141,6 +142,28 @@ public static class OverlayDrainDriver
                 Observability.EventLog.Write("mod", "autopilot_rest_proceed");
                 room.ProceedButton.ForceClick();
                 session.LocalRestSitePendingProceed = false; // one click; re-flag if that was premature
+            }
+        }
+
+        // Merchant room exit (same room-level pattern as rest sites; travel is
+        // enabled at room setup here, so a plain click suffices).
+        if (PhantomSession.Current is { LocalShopPendingProceed: true } shopSession
+            && NRun.Instance?.GetTree().Root is { } shopRoot)
+        {
+            NMerchantRoom? shop = FindAll<NMerchantRoom>(shopRoot).FirstOrDefault();
+            if (shop == null)
+            {
+                shopSession.LocalShopPendingProceed = false;
+            }
+            else
+            {
+                if (!shop.ProceedButton.IsEnabled)
+                {
+                    shop.ProceedButton.Enable();
+                }
+                Observability.EventLog.Write("mod", "autopilot_shop_proceed");
+                shop.ProceedButton.ForceClick();
+                shopSession.LocalShopPendingProceed = false;
             }
         }
     }

@@ -83,3 +83,42 @@ public class RestSiteAllyTargetTests
         }
     }
 }
+
+public class ShopPolicyTests
+{
+    private static ShopCandidate C(string kind, int cost) => new(kind, cost);
+
+    [Fact]
+    public void Shop_BuysAllAffordable_SkipsUnaffordable()
+    {
+        // Invariants under shuffling: never overspend, and the leftover budget can't
+        // afford any unpurchased candidate (greedy maximality in the shuffled order).
+        var candidates = new[] { C("relic3", 150), C("colorless", 50), C("colorless", 45), C("removal", 75) };
+        for (int trial = 0; trial < 100; trial++)
+        {
+            var buys = TrivialPolicy.PickShopPurchases(candidates, gold: 200, potionSlotOpen: true);
+            int spent = buys.Sum(i => candidates[i].Cost);
+            Assert.True(spent <= 200);
+            int leftover = 200 - spent;
+            foreach (int i in Enumerable.Range(0, candidates.Length).Except(buys))
+            {
+                Assert.True(candidates[i].Cost > leftover, $"candidate {i} affordable but not bought");
+            }
+        }
+    }
+
+    [Fact]
+    public void Shop_NoPotionSlot_SkipsPotions()
+    {
+        var candidates = new[] { C("potion", 50), C("colorless", 50) };
+        var buys = TrivialPolicy.PickShopPurchases(candidates, gold: 999, potionSlotOpen: false);
+        Assert.Equal(new[] { 1 }, buys.ToArray());
+    }
+
+    [Fact]
+    public void Shop_Broke_BuysNothing()
+    {
+        var candidates = new[] { C("relic3", 150), C("colorless", 50) };
+        Assert.Empty(TrivialPolicy.PickShopPurchases(candidates, gold: 10, potionSlotOpen: true));
+    }
+}

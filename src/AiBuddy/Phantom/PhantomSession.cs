@@ -64,6 +64,8 @@ public sealed class PhantomSession
     public Dictionary<ulong, HashSet<string>> RestSiteAttempts { get; } = new();
     /// <summary>Debug autopilot: local rest site finished, waiting for the drain to click the room's proceed button.</summary>
     public bool LocalRestSitePendingProceed { get; set; }
+    /// <summary>Debug autopilot: local shopping finished, waiting for the drain to click the merchant room's proceed button.</summary>
+    public bool LocalShopPendingProceed { get; set; }
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 

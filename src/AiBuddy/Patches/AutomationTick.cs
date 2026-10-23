@@ -102,6 +102,7 @@ internal static class AutomationTick
                     SafeDrive("MapDriver", () => MapDriver.Drive(player, state));
                     SafeDrive("RewardsDriver", () => RewardsDriver.Drive(player, state, isLocalAutoplay: false));
                     SafeDrive("RestSiteDriver", () => RestSiteDriver.Drive(player, state, isLocalAutoplay: false));
+                    SafeDrive("ShopDriver", () => ShopDriver.Drive(player, state));
                 }
             }
             SafeDrive("CombatDriver", () => CombatDriver.DriveSequence(state));
@@ -117,6 +118,7 @@ internal static class AutomationTick
                 SafeDrive("EventDriver(local)", () => EventDriver.Drive(me, state));
                 SafeDrive("MapDriver(local)", () => MapDriver.Drive(me, state));
                 SafeDrive("RestSiteDriver(local)", () => RestSiteDriver.Drive(me, state, isLocalAutoplay: true));
+                SafeDrive("ShopDriver(local)", () => ShopDriver.Drive(me, state));
                 SafeDrive("RewardsDriver(local)", () => RewardsDriver.Drive(me, state, isLocalAutoplay: true));
                 SafeDrive("CombatDriver(local)", () => CombatDriver.DriveAutoplay(me, state));
             }

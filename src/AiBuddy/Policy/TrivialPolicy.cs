@@ -25,6 +25,34 @@ public static class TrivialPolicy
     /// </summary>
     private static readonly Random Rng = new();
 
+    /// <summary>
+    /// Shop purchases (user-locked trivial rule): candidates = 3rd relic, colorless
+    /// cards, potions (skipped when no slot open), card removal; shuffled; buy all
+    /// affordable in that order. Returns indexes into the candidate list.
+    /// </summary>
+    public static IReadOnlyList<int> PickShopPurchases(IReadOnlyList<ShopCandidate> candidates, int gold, bool potionSlotOpen)
+    {
+        var order = candidates.Select((c, i) => (c, i))
+            .Where(x => x.c.Kind != "potion" || potionSlotOpen)
+            .ToList();
+        for (int i = order.Count - 1; i > 0; i--)
+        {
+            int j = Rng.Next(i + 1);
+            (order[i], order[j]) = (order[j], order[i]);
+        }
+        var buys = new List<int>();
+        int budget = gold;
+        foreach ((ShopCandidate c, int i) in order)
+        {
+            if (c.Cost <= budget)
+            {
+                buys.Add(i);
+                budget -= c.Cost;
+            }
+        }
+        return buys;
+    }
+
     /// <summary>Rest site (user-locked trivial rule): HP below half → heal; otherwise a random other option. Ally-targeting options (Mend) are excluded — their local flow needs a target UI the trivial brain can't answer (brain-worthy later).</summary>
     public static int? PickRestSiteOption(int currentHp, int maxHp, IReadOnlyList<RestSiteOptionView> options)
     {

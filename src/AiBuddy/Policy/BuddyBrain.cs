@@ -44,6 +44,9 @@ public sealed record RemovalOption(string CardId, bool IsCurseOrStatus);
 /// <summary>One rest-site option for the rest-site brain decision. NeedsAllyTarget: options whose local flow opens ally targeting (Mend) — the trivial brain never picks them.</summary>
 public sealed record RestSiteOptionView(int Index, string OptionId, bool NeedsAllyTarget);
 
+/// <summary>One shop purchase candidate for the shop brain decision. Kind: "relic3" | "colorless" | "potion" | "removal".</summary>
+public sealed record ShopCandidate(string Kind, int Cost);
+
 // ===== Views (control layer → brain; detached data) =====
 
 /// <summary>One player's run-level state (save-schema coverage).</summary>
