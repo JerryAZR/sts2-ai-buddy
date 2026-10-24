@@ -32,26 +32,86 @@ verified with a real vanilla guest over ENet (lobby + in-run, no visible flaws):
 3. Crystal Sphere (act-3 bespoke minigame; deferred).
 4. M8 polish: character picker (Ironclad hardcoded), display names, chat narration.
 
+**Known issues (Linux port):**
+- Phantom played `CARD.BASH` (a targeted attack) with **no target delivered** —
+  `Attempted to play card … with TargetType of type 'Any', but no target was
+  passed` → action `finished … but was in state Canceled!` and combat never
+  re-entered PlayPhase (softlock). Targeted-card targeting is broken in the
+  phantom executor on this build; needs a dedicated repro + fix.
+
 ## Fresh-machine setup
 
 1. Install Slay the Spire 2 (Steam). The build treats the game install as the
-   SDK; standard path auto-detected, else pass `-p:GameDir=...`.
-2. .NET 9 SDK (pinned by `global.json`).
-3. `dotnet build` — Debug builds also deploy to `<GameDir>\mods\AiBuddy`.
+   SDK; standard paths auto-detected (Windows Steam default and Linux
+   `~/.local/share/Steam/...`), else pass `-p:GameDir=...`. The game data dir
+   (`data_sts2_windows_x86_64` / `data_sts2_linuxbsd_x86_64`) is picked by existence.
+2. .NET 9 SDK (`global.json` pins the band; `rollForward: latestFeature`).
+3. `dotnet build` — Debug builds also deploy to `<GameDir>/mods/AiBuddy`.
 4. `dotnet test tests/AiBuddy.Tests` — unit + IL-scan structural tests.
 5. (Optional, for source diving) regenerate the decompile:
-   `ilspycmd "<GameDir>\data_sts2_windows_x86_64\sts2.dll" -o refs/decompiled/sts2-v0.111.0`
+   `ilspycmd "<GameDir>/data_sts2_*/sts2.dll" -o refs/decompiled/sts2-v0.111.0`
    (gitignored reference material; tests don't need it, humans/agents do).
+   Linux note: the dnf `ilspycmd` package is broken — install a pinned version and
+   roll forward to the .NET 9 runtime:
+   `dotnet tool install -g ilspycmd --version 9.1.0.7988` and run with
+   `DOTNET_ROLL_FORWARD=LatestMajor`.
 
 ## Headless test harness
 
+Windows:
+```cmd
+set AIBUDDY_AUTO_PHANTOMS=2
+set AIBUDDY_AUTOPLAY_LOCAL=1
+set AIBUDDY_TEST_MAP=monster,rest,treasure,event,shop,monster
+"<GameDir>\SlayTheSpire2.exe" --force-steam off --fastmp host_standard > build\logs\run.log 2>&1
+:: poll for "Embarking", wait, then: taskkill //IM SlayTheSpire2.exe
+```
+
+Linux (native `SlayTheSpire2` binary, no `.exe`; `pkill` instead of `taskkill`):
 ```bash
 AIBUDDY_AUTO_PHANTOMS=2 AIBUDDY_AUTOPLAY_LOCAL=1 \
   AIBUDDY_TEST_MAP="monster,rest,treasure,event,shop,monster" \
-  "<GameDir>\SlayTheSpire2.exe" --force-steam off --fastmp host_standard \
+  "<GameDir>/SlayTheSpire2" --force-steam off --fastmp host_standard \
   > build/logs/run.log 2>&1 &
-# poll for "Embarking", wait, then: taskkill //IM SlayTheSpire2.exe
+# poll for "Embarking", wait, then: pkill -f SlayTheSpire2
 ```
+
+### First-run onboarding (fresh profile gotchas)
+
+`--force-steam off` uses an **isolated profile** (`user://default/1`, on Linux
+`~/.local/share/SlayTheSpire2/default/1/`) — separate from the Steam profile, so
+a modded normal install doesn't leak in. But that profile starts at day zero, and
+a fresh profile changes the run the mod sees. Four gates, all traced to decompiled
+`sts2.dll` v0.111.0 (`refs/decompiled/`):
+
+1. **Mods won't load** — log shows `Skipping loading mod …, user has not yet
+   seen the mods warning`. `ModManager.TryLoadMod` gates on
+   `PlayerAgreedToModLoading` (serialized as `settings.save →
+   mod_settings.mods_enabled`), set **only** by the in-game dialog — and clicking
+   "Load mods" **quits the game** (`NConfirmModLoadingPopup.OnYesButtonPressed` →
+   `NGame.Instance.Quit()`). The mod loads on the *next* launch.
+   **Fix (one-time):** run the game in a GUI once, click "Load mods", let it quit.
+2. **No Neow** — `ActModel.GetUnlockedAncients` removes Neow unless `NEOW_EPOCH` is
+   `Revealed`; normally revealed by the Timeline screen tutorial.
+3. **Fixed first-run map** — `ApplyActDiscoveryOrderModifications` logs `"First run
+   ever. Presenting rooms in a set order."` and forces a curated room sequence when
+   `NumberOfRuns == 0` (`= Wins+Losses`, a `[JsonIgnore]` sum over `character_stats`).
+4. **FTUE popups** mid-run — `ftue_completed` empty on a fresh profile.
+
+Gates 2–4 live in `progress.save` and are seedable. Run once before the first
+headless session (idempotent, backs up to `progress.save.bak`, edits both
+`profile1` and `modded/profile1`):
+
+```bash
+python3 tools/seed-fresh-profile.py
+```
+
+It reveals `NEOW_EPOCH` (plus all 57 epoch slots as `not_obtained`, avoiding
+`Epoch X slot missing but parent NEOW_EPOCH is Revealed` warnings), bumps Ironclad
+`total_losses` to 1 (so `NumberOfRuns > 0`), and fills `ftue_completed` with the
+14 tutorial FTUE ids.
+
+### Environment & logs
 
 Env vars (all testbench, never shipped behavior): `AIBUDDY_AUTO_PHANTOMS=N`,
 `AIBUDDY_AUTOPLAY_LOCAL=1`, `AIBUDDY_TEST_MAP="monster,rest,treasure,event,shop,…"`,
@@ -59,8 +119,9 @@ Env vars (all testbench, never shipped behavior): `AIBUDDY_AUTO_PHANTOMS=N`,
 `AIBUDDY_TEST_NEOW_RELICS=1`, `AIBUDDY_TEST_COMBAT_CHOICE=1`,
 `AIBUDDY_TEST_REST_EXHAUSTION=1`, `AIBUDDY_AUTO_ACT_ON_HOST_END=1`.
 
-Logs: `%APPDATA%\sts2-ai-buddy\logs\session-*.jsonl` (event stream),
-`build/logs/` (harness stdout). Two-instance vanilla-guest test: `docs/m7-test.md`.
+Logs: Windows `%APPDATA%\sts2-ai-buddy\logs\session-*.jsonl`, Linux
+`~/.config/sts2-ai-buddy/logs/session-*.jsonl` (event stream); `build/logs/`
+(harness stdout). Two-instance vanilla-guest test: `docs/m7-test.md`.
 
 ## Working agreement
 

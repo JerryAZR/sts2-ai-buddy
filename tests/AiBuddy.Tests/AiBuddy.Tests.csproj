@@ -22,16 +22,29 @@
     <ProjectReference Include="..\..\src\AiBuddy\AiBuddy.csproj" />
   </ItemGroup>
 
-  <!-- Game assemblies, for test code that touches game types (metadata-level use only). Copied locally so the test host can resolve them. -->
+  <!-- Game assemblies, for test code that touches game types (metadata-level use only). Copied locally so the test host can resolve them.
+       Same GameDir/Sts2DataDir resolution as the mod project; override with -p:GameDir=... if non-standard. -->
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll')">C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('$(HOME)/.local/share/Steam/steamapps/common/Slay the Spire 2/data_sts2_linuxbsd_x86_64/sts2.dll')">$(HOME)/.local/share/Steam/steamapps/common/Slay the Spire 2</GameDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == '' and '$(GameDir)' != '' and Exists('$(GameDir)/data_sts2_windows_x86_64/sts2.dll')">$(GameDir)/data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == '' and '$(GameDir)' != '' and Exists('$(GameDir)/data_sts2_linuxbsd_x86_64/sts2.dll')">$(GameDir)/data_sts2_linuxbsd_x86_64</Sts2DataDir>
+  </PropertyGroup>
+
+  <Target Name="ValidateGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)/sts2.dll')"
+           Text="Set GameDir or Sts2DataDir to the current Slay the Spire 2 installation." />
+  </Target>
+
   <ItemGroup>
     <Reference Include="sts2">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll</HintPath>
+      <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
     </Reference>
     <Reference Include="GodotSharp">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\GodotSharp.dll</HintPath>
+      <HintPath>$(Sts2DataDir)/GodotSharp.dll</HintPath>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\0Harmony.dll</HintPath>
+      <HintPath>$(Sts2DataDir)/0Harmony.dll</HintPath>
     </Reference>
   </ItemGroup>
 
