@@ -137,3 +137,26 @@ public class ShopPolicyTests
         Assert.Empty(TrivialPolicy.PickShopPurchases(candidates, gold: 10, potionSlotOpen: true));
     }
 }
+
+public class TreasurePolicyTests
+{
+    [Fact]
+    public void TreasureRelic_PicksOnlyUntaken()
+    {
+        var taken = new HashSet<int> { 0, 2 };
+        for (int i = 0; i < 100; i++)
+        {
+            Assert.Equal(1, TrivialPolicy.PickTreasureRelic(3, taken)); // dupes trigger relic fights
+        }
+    }
+
+    [Fact]
+    public void TreasureRelic_AllTaken_FallsBackToAnyInRange()
+    {
+        var taken = new HashSet<int> { 0, 1 };
+        for (int i = 0; i < 50; i++)
+        {
+            Assert.InRange(TrivialPolicy.PickTreasureRelic(2, taken), 0, 1);
+        }
+    }
+}

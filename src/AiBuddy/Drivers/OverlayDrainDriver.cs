@@ -1,5 +1,8 @@
 using Godot;
+using System.Reflection;
 using AiBuddy.Phantom;
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
@@ -34,6 +37,10 @@ public static class OverlayDrainDriver
     private static bool _gameOverReported;
 
     private static readonly string[] FallbackButtonNames = { "ProceedButton", "SkipButton", "ConfirmButton" };
+
+    private static readonly MethodInfo TreasureOpenChest =
+        typeof(NTreasureRoom).GetMethod("OpenChest", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingMethodException("NTreasureRoom.OpenChest");
 
     public static void Tick()
     {
@@ -165,6 +172,42 @@ public static class OverlayDrainDriver
                 shop.ProceedButton.ForceClick();
                 shopSession.LocalShopPendingProceed = false;
             }
+        }
+
+        // Treasure room exit (same room-level pattern as merchant).
+        if (PhantomSession.Current is { LocalTreasurePendingProceed: true } treasureSession
+            && NRun.Instance?.GetTree().Root is { } treasureRoot)
+        {
+            NTreasureRoom? treasure = FindAll<NTreasureRoom>(treasureRoot).FirstOrDefault();
+            if (treasure == null)
+            {
+                treasureSession.LocalTreasurePendingProceed = false;
+            }
+            else
+            {
+                if (!treasure.ProceedButton.IsEnabled)
+                {
+                    treasure.ProceedButton.Enable();
+                }
+                Observability.EventLog.Write("mod", "autopilot_treasure_proceed");
+                treasure.ProceedButton.ForceClick();
+                treasureSession.LocalTreasurePendingProceed = false;
+            }
+        }
+
+        // Treasure chest: the local chest must go through the UI flow (OpenChest) —
+        // the relic display and the proceed button's Skip->Proceed switch hang off it.
+        if (PhantomSession.Current is { } chestSession
+            && RunManager.Instance?.DebugOnlyGetState() is { } chestState
+            && chestState.CurrentRoom is MegaCrit.Sts2.Core.Rooms.TreasureRoom
+            && LocalContext.GetMe(chestState) is { } chestMe
+            && !chestSession.TreasureChestOpened.Contains(chestMe.NetId)
+            && NRun.Instance?.GetTree().Root is { } chestRoot
+            && FindAll<NTreasureRoom>(chestRoot).FirstOrDefault() is { } chestRoom)
+        {
+            chestSession.TreasureChestOpened.Add(chestMe.NetId);
+            Observability.EventLog.Write("mod", "autopilot_treasure_chest");
+            MegaCrit.Sts2.Core.Helpers.TaskHelper.RunSafely((System.Threading.Tasks.Task)TreasureOpenChest.Invoke(chestRoom, null)!);
         }
     }
 

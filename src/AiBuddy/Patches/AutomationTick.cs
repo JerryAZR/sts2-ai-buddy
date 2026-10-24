@@ -94,6 +94,21 @@ internal static class AutomationTick
         // Phantom drivers run on the host only.
         if (run.NetService.Type == NetGameType.Host && PhantomSession.Current is { } session)
         {
+            if (!session.PeerInputForgedToGuests)
+            {
+                // Run start: re-forge each phantom's peer-input state for guests who
+                // joined after the phantom was added (all guests are connected by
+                // embark). Without it their treasure screens lazily create the state
+                // mid-Initialize and log the double-hand error.
+                session.PeerInputForgedToGuests = true;
+                foreach (PhantomDescriptor phantom in session.Phantoms)
+                {
+                    PhantomNet.BroadcastAsPhantom(phantom.NetId, new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage
+                    {
+                        screenType = MegaCrit.Sts2.Core.Entities.Multiplayer.NetScreenType.None,
+                    });
+                }
+            }
             foreach (PhantomDescriptor phantom in session.Phantoms)
             {
                 Player? player = state.GetPlayer(phantom.NetId);
@@ -104,6 +119,7 @@ internal static class AutomationTick
                     SafeDrive("RewardsDriver", () => RewardsDriver.Drive(player, state, isLocalAutoplay: false));
                     SafeDrive("RestSiteDriver", () => RestSiteDriver.Drive(player, state, isLocalAutoplay: false));
                     SafeDrive("ShopDriver", () => ShopDriver.Drive(player, state));
+                    SafeDrive("TreasureDriver", () => TreasureDriver.Drive(player, state));
                 }
             }
             SafeDrive("CombatDriver", () => CombatDriver.DriveSequence(state));
@@ -120,6 +136,7 @@ internal static class AutomationTick
                 SafeDrive("MapDriver(local)", () => MapDriver.Drive(me, state));
                 SafeDrive("RestSiteDriver(local)", () => RestSiteDriver.Drive(me, state, isLocalAutoplay: true));
                 SafeDrive("ShopDriver(local)", () => ShopDriver.Drive(me, state));
+                SafeDrive("TreasureDriver(local)", () => TreasureDriver.Drive(me, state));
                 SafeDrive("RewardsDriver(local)", () => RewardsDriver.Drive(me, state, isLocalAutoplay: true));
                 SafeDrive("CombatDriver(local)", () => CombatDriver.DriveAutoplay(me, state));
             }

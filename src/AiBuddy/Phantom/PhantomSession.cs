@@ -66,6 +66,14 @@ public sealed class PhantomSession
     public bool LocalRestSitePendingProceed { get; set; }
     /// <summary>Debug autopilot: local shopping finished, waiting for the drain to click the merchant room's proceed button.</summary>
     public bool LocalShopPendingProceed { get; set; }
+    /// <summary>Debug autopilot: local treasure flows finished, waiting for the drain to click the treasure room's proceed button.</summary>
+    public bool LocalTreasurePendingProceed { get; set; }
+    /// <summary>Treasure rooms: players whose chest was opened this room.</summary>
+    public HashSet<ulong> TreasureChestOpened { get; } = new();
+    /// <summary>Treasure rooms: relic vote enqueued this room per player, with the index (dupes start relic fights — dedup needs in-flight indices).</summary>
+    public Dictionary<ulong, int> TreasurePickSent { get; } = new();
+    /// <summary>Phantom PeerInputMessage forged to guests this run (input states exist before any treasure screen).</summary>
+    public bool PeerInputForgedToGuests { get; set; }
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 
@@ -101,6 +109,8 @@ public sealed class PhantomSession
     {
         FlowActive.Clear();
         FlowBrainDone.Clear();
+        TreasureChestOpened.Clear();
+        TreasurePickSent.Clear();
     }
 
     private PhantomSession(INetGameService? netService) => _netService = netService;

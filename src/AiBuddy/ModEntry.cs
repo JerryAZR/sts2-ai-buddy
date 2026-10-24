@@ -64,6 +64,8 @@ public static class ModEntry
         typeof(Patches.MendPromptCapturePatch),
         typeof(Phantom.PhantomNet),
         typeof(Drivers.RestSiteDriver),
+        typeof(Drivers.TreasureDriver),
+        typeof(Drivers.OverlayDrainDriver),
         typeof(Patches.RestSiteCapturePatch),
     };
 

@@ -34,6 +34,10 @@ public static class PhantomLobbyService
         typeof(StartRunLobby).GetMethod("BeginRunForAllPlayersIfAllReady", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("StartRunLobby.BeginRunForAllPlayersIfAllReady");
 
+    private static readonly MethodInfo HandlePeerInput =
+        typeof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.PeerInputSynchronizer).GetMethod("HandlePeerInputMessage", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingMethodException("PeerInputSynchronizer.HandlePeerInputMessage");
+
     /// <summary>Add one phantom to the lobby.</summary>
     public static (AddResult result, PhantomDescriptor? phantom) AddPhantom(StartRunLobby lobby, PhantomSession session)
     {
@@ -89,6 +93,17 @@ public static class PhantomLobbyService
         // The ready message carries no player id (sender is inferred) — it MUST be
         // forged with the phantom as wire sender, or guests misread it as the host.
         PhantomNet.BroadcastAsPhantom(descriptor.NetId, new LobbyPlayerSetReadyMessage { ready = true });
+        // Mirror what a real client's cursor sync does from the lobby onward: make
+        // the phantom's peer-input state exist before any screen lazily creates it
+        // (the lazy path re-enters NHandImageCollection.AddHand -> double-add error,
+        // on guests too). The lobby's synchronizer instance flows into the run, so
+        // this persists. Guests who join LATER get the forge at run start (tick).
+        var peerInput = new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage
+        {
+            screenType = MegaCrit.Sts2.Core.Entities.Multiplayer.NetScreenType.None,
+        };
+        HandlePeerInput.Invoke(lobby.InputSynchronizer, new object[] { peerInput, descriptor.NetId });
+        PhantomNet.BroadcastAsPhantom(descriptor.NetId, peerInput);
 
         Observability.EventLog.Write("mod", "phantom_added", new
         {

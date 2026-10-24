@@ -171,6 +171,17 @@ public static class TrivialPolicy
     /// <summary>Index-choice prompts (choose-a-card, bundles): always take the first. Never skips in v1.</summary>
     public static int PickIndex(int optionCount) => 0;
 
+    /// <summary>Treasure relic vote: random among relics nobody else is voting for —
+    /// duplicate votes trigger an RPS relic fight (auto-resolved model-side, but it
+    /// breaks the award animation's holder lookup on every peer). Humans dedup by
+    /// watching live votes; we dedup from the synchronizer plus our in-flight picks.
+    /// Defensive fallback when all are taken (relic count < player count): any index.</summary>
+    public static int PickTreasureRelic(int relicCount, IReadOnlySet<int> takenIndices)
+    {
+        var free = Enumerable.Range(0, relicCount).Where(i => !takenIndices.Contains(i)).ToList();
+        return free.Count > 0 ? free[Rng.Next(free.Count)] : Rng.Next(relicCount);
+    }
+
     /// <summary>
     /// Multi-select prompts: the first MinSelect options (or none when cancelable
     /// with no minimum). Returns null when the constraints are unsatisfiable —
