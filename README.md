@@ -32,12 +32,14 @@ verified with a real vanilla guest over ENet (lobby + in-run, no visible flaws):
 3. Crystal Sphere (act-3 bespoke minigame; deferred).
 4. M8 polish: character picker (Ironclad hardcoded), display names, chat narration.
 
-**Known issues (Linux port):**
-- Phantom played `CARD.BASH` (a targeted attack) with **no target delivered** —
-  `Attempted to play card … with TargetType of type 'Any', but no target was
-  passed` → action `finished … but was in state Canceled!` and combat never
-  re-entered PlayPhase (softlock). Targeted-card targeting is broken in the
-  phantom executor on this build; needs a dedicated repro + fix.
+**Notes:**
+- During co-op combat you may see the game log `[WARN] Attempted to play card …
+  no target was passed` + `[ERROR] GameAction … finished … but was in state
+  Canceled!`. This is **expected**, not a bug: a phantom's planned target died
+  mid-batch (e.g. a faster ally killed it), the game cancels the play
+  (`GetCreatureAsync` → null → `IsValidTarget(null)` false → `Cancel()`), and the
+  mod's kill-chain aborts the rest of the batch and replans — by design
+  (`CombatDriver`). The ERROR is just the game's noisy logging for a routine cancel.
 
 ## Fresh-machine setup
 
