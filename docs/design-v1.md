@@ -134,15 +134,18 @@ Ordered by **gameplay order** (user decision): each milestone extends how far a 
 
 | Milestone | Content | Exit criterion |
 |---|---|---|
-| **M0 — skeleton + observability** | Mod loads (`[ModInitializer]`), manifest `affects_gameplay: false`, pinned net9.0 build; full §3.0 observability layer | Mod listed in-game; wire tap + wait tracer produce a clean timeline of an unmodded solo run |
-| **M1 — lobby join & run start** (ENet loopback) | PhantomRegistry (N-capable); "Add AI Buddy" button (Ironclad hardcoded); lobby injection + forged `PlayerJoinedMessage`; ready handling; run begins with phantoms in `RunState`/`RunLobby` everywhere | Solo host starts a seeded run with **2 phantoms**; host sim consistent |
-| **M2 — Neow / ancient** | Event-option choice via `EventSynchronizer`; relic grants ride the command layer for free (`RelicCmd.Obtain` inside the option's `onChosen` — no reward screen at the protocol level); card-select grids (`ICardSelector` seam — covers `MassiveScroll`/`ScrollBoxes`-style relics). **Subset:** v1 policy avoids options that open reward-set offers (`LostCoffer` — one relic among ~24) until M3 lands | Phantom completes Neow (incl. card-removal and card-grid options) |
-| **M3 — map + combat + rewards** | Map vote mirroring; `CombatStateSynchronizer` sync fabrication; action enqueue with phantom `OwnerId`; host-gated combat button + wake-up (`NetUndoEndPlayerTurnAction`); auto-ready driving; reward collection in fixed order **relic → gold → cards** (relic/gold unconditional; card reward = pick-or-skip via validated policy) | Phantom survives combats, takes rewards; button gating and wake-up verified |
-| **M4 — events** | Personal event options (full — same seam as Neow); shared-event vote mirroring; conservative default (first non-lethal option) + loud log for unrecognized custom events | Phantom completes common act-1 events |
-| **M5 — rest sites + shops** | Rest option chosen/skipped; shop = **no-op initially** (phantom buys nothing, just leaves) | Act 1 completable end-to-end most runs |
-| **M6 — save/resume** | §3.6 load-flow injection + corrupt-rename guards | Save → quit → resume mid-act with phantom, 5× |
-| **M7 — Steam P2P go/no-go** (needs a friend; only after M1–M6 stable) | Switch transport to Steam; vanilla guest joins | Guest sees phantom as normal player; full room completes; no divergence |
-| **M8 — polish** | Host-side display names, character picker (replaces hardcoded Ironclad), chat narration, config UI | — |
+| **M0 — skeleton + observability** ✅ | Mod loads (`[ModInitializer]`), manifest `affects_gameplay: false`, pinned net9.0 build; full §3.0 observability layer | Mod listed in-game; wire tap + wait tracer produce a clean timeline of an unmodded solo run |
+| **M1 — lobby join & run start** (ENet loopback) ✅ | PhantomRegistry (N-capable); "Add AI Buddy" button (Ironclad hardcoded); lobby injection + forged `PlayerJoinedMessage`; ready handling; run begins with phantoms in `RunState`/`RunLobby` everywhere | Solo host starts a seeded run with **2 phantoms**; host sim consistent |
+| **M2 — Neow / ancient** ✅ | Event-option choice via `EventSynchronizer`; relic grants ride the command layer; card-select grids. All 29 Neow relic paths verified incl. reward-set offers (LostCoffer et al.) via the real reward flow | Phantom completes Neow (incl. card-removal and card-grid options) |
+| **M3 — map + combat + rewards** ✅ | Map vote mirroring; combat sync fabrication; plan-then-drain executor (settle-gated, kill-chain, per-play outcomes); trigger discipline (single door, registration order, wake-and-replay); reward collection relic → gold → special → potion → card → removal | Phantom survives combats, takes rewards; button gating and wake-up verified |
+| **M4 — events + shared rooms** ✅ | Personal event options; **shared-event votes** (phantom votes fabricated, host tallies; incl. fight-spawning shared events); **treasure rooms** (chest gold via `OneOffSynchronizer` + forge; dedup'd relic votes via `PickRelicAction`; phantom peer-input state mirror kills the hand-collection double-add on all peers) | Soak-verified: forced shared events + event combats + treasure rooms, clean |
+| **M5 — rest sites + shops** ✅ | Rest option driving (heal <50% else random non-ally-target); shops: full purchase flow per user-locked rule (3rd relic / colorless / potions-if-slot / removal, shuffled, affordable) for phantoms AND autopilot | Act 1 completable end-to-end most runs |
+| **M7 — P2P go/no-go** ✅ (done early, user-approved reorder) | `PhantomNet` forged-sender broadcasts (`overrideSenderId`) for sync/choices/events/rest/rewards/lobby-ready; two-instance ENet test + one live vanilla-guest test | Guest sees phantom as normal player; no divergence |
+| **M6 — save/resume** ⬜ NEXT | §3.6 load-flow injection + corrupt-rename guards | Save → quit → resume mid-act with phantom, 5× |
+| **Shop purchase forging** ⬜ NEXT | Phantom buys currently stamp the host (`SyncLocalGoldLost`/`RewardObtainedMessage`/`CardRemovedMessage`/`MerchantCardRemovalMessage`) — guest-state desync; forge per message | Phantom shop purchase with live guest, no diverge |
+| **M8 — polish** ⬜ | Host-side display names, character picker (replaces hardcoded Ironclad), chat narration, config UI | — |
+
+**Cross-cutting hardening landed (M7 spike review):** vote gate (§3.5 — phantoms pace themselves via the unanimous map vote; "done" is a brain choice, tri-state act/abstain/undecided); room-exit reward hygiene (vanilla `BeforeLeavingRoom` mirror, forged); `PhantomNet` per-peer resilience; mechanical coverage pins (IL scans: all `WaitForRemoteChoice` sites captured; zero blocking primitives in all 68 events + all cards). Known deferrals: Crystal Sphere (act 3); relic-fight RPS auto-resolves model-side (dupes avoided by policy).
 
 M1–M6 are fully host-only (ENet loopback, no second account). Act 2 is expected to reuse the same seams unchanged; act-3 Crystal Sphere is the only known bespoke content and is deferred (§6).
 
@@ -164,6 +167,6 @@ M1–M6 are fully host-only (ENet loopback, no second account). Act 2 is expecte
 
 ## 7. Top risks
 
-1. **M7 fails** (Steam lobby behaves differently than ENet for fabricated members). Mitigation: fallback Path B from the feasibility report (second local instance) — all control-layer/brain work carries over.
+1. ~~M7 fails~~ **M7 passed on ENet** (two-instance + live vanilla guest, no divergence). Residual: **Steam transport** specifically is untested (relay/lobby behavior under Steam sockets may differ) — first real Steam session is a smoke test; fallback remains Path B from the feasibility report.
 2. **EA patch drift** — every Harmony target above is a re-verification point per game update.
 3. **An EA patch adds a 14th synchronizer or changes an awaited message** → hang, not crash. Mitigation: the wait tracer makes unknown waits immediately visible; the §3.4 inventory is complete as of v0.111.0.
