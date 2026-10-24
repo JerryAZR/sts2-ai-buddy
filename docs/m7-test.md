@@ -54,7 +54,9 @@ Wait ~30s for the lobby (char select) to be up.
 - **Shop purchases by phantoms don't reach guests** (`SyncLocal*` stamps the host,
   not the phantom). Phantom shop buys will desync the guest — AVOID shops with a
   live guest, or expect the diverge. Forging for purchases is TODO.
-- Shared/collaborative events (M4) — phantoms abstain; may stall if one appears.
+- Shared/collaborative events: SUPPORTED (phantoms vote via fabricated
+  `VotedForSharedEventOptionMessage`; host tallies as usual). Event-spawned
+  fights covered by the combat driver.
 - Treasure rooms: FIXED (chest + dedup'd relic votes + input-state mirror).
   Residual: if a human ties a phantom's relic vote in the same instant, an RPS
   relic fight starts — auto-resolved by RNG model-side, but the award animation

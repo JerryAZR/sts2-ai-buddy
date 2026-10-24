@@ -25,13 +25,24 @@ public static class EventDriver
         typeof(EventSynchronizer).GetMethod("ChooseOptionForEvent", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("EventSynchronizer.ChooseOptionForEvent");
 
+    private static readonly MethodInfo PlayerVotedForSharedOption =
+        typeof(EventSynchronizer).GetMethod("PlayerVotedForSharedOptionIndex", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingMethodException("EventSynchronizer.PlayerVotedForSharedOptionIndex");
+
+    private static readonly FieldInfo PageIndexField =
+        typeof(EventSynchronizer).GetField("_pageIndex", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingFieldException("EventSynchronizer._pageIndex");
+
+    private static readonly FieldInfo PlayerVotesField =
+        typeof(EventSynchronizer).GetField("_playerVotes", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingFieldException("EventSynchronizer._playerVotes");
+
     /// <summary>Drive the given player's current event one step, if there is a stable page with a valid option.</summary>
     public static void Drive(Player player, RunState state)
     {
         EventSynchronizer sync = RunManager.Instance.EventSynchronizer;
-        if (sync.Events.Count == 0 || sync.IsShared)
+        if (sync.Events.Count == 0)
         {
-            // Shared/collaboration events are M4 (vote mirroring).
             return;
         }
         EventModel? ev = sync.Events.FirstOrDefault(e => e.Owner == player);
@@ -88,6 +99,31 @@ public static class EventDriver
         }
 
         bool isLocal = LocalContext.IsMe(player);
+
+        if (sync.IsShared && !isLocal)
+        {
+            // Shared events: the party votes per page; the host tallies and RNG-picks
+            // among votes, then broadcasts the chosen option (guests need nothing but
+            // the vote — execution flows from the host's SharedEventOptionChosenMessage).
+            uint page = (uint)PageIndexField.GetValue(sync)!;
+            var votes = (List<uint?>)PlayerVotesField.GetValue(sync)!;
+            int slot = state.GetPlayerSlotIndex(player);
+            if (slot < votes.Count && votes[slot].HasValue)
+            {
+                return; // already voted this page
+            }
+            Observability.EventLog.Write("mod", "phantom_shared_event_vote",
+                new { netId = player.NetId, eventId = ev.Id.Entry, index, page });
+            PlayerVotedForSharedOption.Invoke(sync, new object[] { player, (uint)index, page });
+            PhantomNet.BroadcastAsPhantom(player.NetId, new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.VotedForSharedEventOptionMessage
+            {
+                optionIndex = (uint)index,
+                pageIndex = page,
+                location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
+            });
+            return;
+        }
+
         Observability.EventLog.Write("mod", isLocal ? "autopilot_event_choice" : "phantom_event_choice", new
         {
             netId = player.NetId,

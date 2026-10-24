@@ -166,8 +166,15 @@ public static class RewardsDriver
         {
             foreach (RewardsSet set in stack.ToArray().Reverse())
             {
-                if (session.RewardSkipSent.Add(set))
+                try
                 {
+                    // The synchronizer completes sets before our tracking observes it
+                    // (cleanup lands next tick) — re-skipping a completed set throws
+                    // inside the room-exit action. Only skip sets still genuinely open.
+                    if (sync.IsRewardsSetCompleted(set) || !session.RewardSkipSent.Add(set))
+                    {
+                        continue;
+                    }
                     Observability.EventLog.Write("mod", "phantom_rewards_exit_skip", new { netId, setId = set.Id });
                     var message = new RewardSetSkippedMessage
                     {
@@ -176,6 +183,12 @@ public static class RewardsDriver
                     };
                     sync.HandleRewardSetSkippedMessage(message, netId);
                     PhantomNet.BroadcastAsPhantom(netId, message);
+                }
+                catch (Exception ex)
+                {
+                    // Boundary hygiene must never throw into the room-exit action.
+                    Log.Warn($"[AiBuddy] Exit-skip failed for phantom {netId} set {set.Id}: {ex.Message}");
+                    Observability.EventLog.Write("mod", "phantom_rewards_exit_skip_failed", new { netId, setId = set.Id, error = ex.Message });
                 }
             }
         }

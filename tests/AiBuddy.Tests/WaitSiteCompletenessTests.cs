@@ -36,6 +36,73 @@ public class WaitSiteCompletenessTests
             "WaitForRemoteChoice call sites without a capture patch: " +
             string.Join(", ", uncovered.Select(s => $"{s.FullName}.{s.Name}")));
     }
+    [Fact]
+    public void EventAndCardCode_HasNoUnpinnedBlockingWaits()
+    {
+        // Event option selects and card OnPlay run inside the deterministic sim on
+        // every peer. A blocking primitive there (sync-over-async, thread waits) is a
+        // phantom wait we cannot fabricate — fail red instead of softlocking a live run.
+        var flagged = new SortedSet<string>(StringComparer.Ordinal);
+        Type[] types;
+        try
+        {
+            types = typeof(PlayerChoiceSynchronizer).Assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            types = ex.Types.Where(t => t != null).Cast<Type>().ToArray();
+        }
+        foreach (Type type in types)
+        {
+            bool inScope = type == typeof(MegaCrit.Sts2.Core.Models.EventModel)
+                || type == typeof(MegaCrit.Sts2.Core.Models.CardModel)
+                || type.Namespace?.Contains(".Models.Events") == true
+                || IsSubclassOf(type, typeof(MegaCrit.Sts2.Core.Models.CardModel));
+            if (!inScope)
+            {
+                continue;
+            }
+            foreach (MethodInfo method in AllMethods(type))
+            {
+                foreach (MethodBase called in CalledMethods(method))
+                {
+                    if (!IsBlockingPrimitive(called))
+                    {
+                        continue;
+                    }
+                    var logical = LogicalMethod(method);
+                    flagged.Add($"{logical.Item1!.Name}.{logical.Item2} -> {called.DeclaringType!.Name}.{called.Name}");
+                }
+            }
+        }
+        Assert.True(flagged.Count == 0,
+            "Blocking primitives in event/card code (adjudicate each: real wait = missing fabrication; benign = justify + allowlist):\n"
+            + string.Join("\n", flagged));
+    }
+
+    private static bool IsSubclassOf(Type type, Type baseType)
+    {
+        for (Type? t = type.BaseType; t != null; t = t.BaseType)
+        {
+            if (t == baseType)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsBlockingPrimitive(MethodBase called)
+    {
+        string? decl = called.DeclaringType?.FullName;
+        return (decl == "System.Threading.Tasks.Task" && called.Name is "Wait" or "WaitAll" or "WaitAny" or "get_Result")
+            || (decl?.StartsWith("System.Threading.Tasks.Task`1") == true && called.Name == "get_Result")
+            || (decl == "System.Threading.Thread" && called.Name == "Sleep")
+            || (decl == "System.Threading.WaitHandle" && called.Name == "WaitOne")
+            || (called.Name == "SpinUntil" && decl?.Contains("SpinWait") == true);
+    }
+
+
 
     /// <summary>Logical (declaringType, methodName) of every method whose IL calls <paramref name="callee"/> — async state machines resolve to their logical method.</summary>
     private static IEnumerable<(Type DeclaringType, string Name)> FindCallers(MethodInfo callee)

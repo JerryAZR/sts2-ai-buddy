@@ -49,6 +49,7 @@ public static class ModEntry
         typeof(Observability.WireTap),
         typeof(Observability.WaitTracer),
         typeof(Patches.RoomExitDiagnostics),
+        typeof(Drivers.TestEventSplicePatch),
     };
 
     /// <summary>Classes whose static initializers resolve game members via reflection (?? throw).</summary>
@@ -66,6 +67,7 @@ public static class ModEntry
         typeof(Drivers.RestSiteDriver),
         typeof(Drivers.TreasureDriver),
         typeof(Drivers.OverlayDrainDriver),
+        typeof(Drivers.TestEventSplicePatch),
         typeof(Patches.RestSiteCapturePatch),
     };
 
