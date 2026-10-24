@@ -39,8 +39,18 @@ public static class EventDriver
         {
             return;
         }
+        bool isPhantom = !LocalContext.IsMe(player);
+        if (isPhantom)
+        {
+            PhantomSession.Current?.MarkFlowActive(player.NetId, PhantomSession.RoomFlow.Event);
+        }
         if (ev.IsFinished)
         {
+            // Event page flow mechanically finished: the brain answered every page.
+            if (isPhantom)
+            {
+                PhantomSession.Current?.MarkFlowBrainDone(player.NetId, PhantomSession.RoomFlow.Event);
+            }
             // Proceed is a local-UI concept (opens the map); phantoms have no screen,
             // so only the autopilot needs it. Guard on the CURRENT room being this
             // event's room: finished events linger in the synchronizer after exit,

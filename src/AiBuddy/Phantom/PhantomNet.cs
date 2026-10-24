@@ -41,7 +41,19 @@ public static class PhantomNet
             t => SendToClientInternal.MakeGenericMethod(t));
         foreach (var peer in host.ConnectedPeers)
         {
-            generic.Invoke(host, new object[] { message, peer.peerId, channel, phantomNetId });
+            try
+            {
+                generic.Invoke(host, new object[] { message, peer.peerId, channel, phantomNetId });
+            }
+            catch (Exception ex)
+            {
+                // A dead peer must not abort the fan-out: remaining guests still need
+                // the message (the phantom never disconnects, so vanilla's disconnect
+                // fallbacks never fire for it).
+                Log.Warn($"[AiBuddy] Forged {message.GetType().Name} from {phantomNetId} failed for peer {peer.peerId}: {ex.InnerException?.Message ?? ex.Message}");
+                Observability.EventLog.Write("mod", "forged_broadcast_peer_failed",
+                    new { from = phantomNetId, type = message.GetType().Name, peer = peer.peerId });
+            }
         }
         Observability.EventLog.Write("mod", "forged_broadcast",
             new { from = phantomNetId, type = message.GetType().Name, peers = host.ConnectedPeers.Count });

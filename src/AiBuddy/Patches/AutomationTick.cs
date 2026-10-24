@@ -86,6 +86,7 @@ internal static class AutomationTick
             if (_lastMapCoord.HasValue)
             {
                 ChoiceDriver.OnBoundary();
+                PhantomSession.Current?.ResetRoomFlows(); // a new room presents new brain decisions
             }
             _lastMapCoord = coord;
         }
@@ -127,6 +128,7 @@ internal static class AutomationTick
         NeowRelicTestDriver.Tick(state);
         CombatChoiceTestDriver.Tick(state);
         TestMapDriver.Tick(state);
+        RestExhaustionTestDriver.Tick(state);
 
         // Heartbeat every 10s so a silent tick is distinguishable from a quiet game.
         if (++_tickCount % 20 == 0)

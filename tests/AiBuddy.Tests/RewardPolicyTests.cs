@@ -69,6 +69,21 @@ public class RestSitePolicyTests
     {
         Assert.Equal(0, TrivialPolicy.PickRestSiteOption(70, 80, Options("HEAL")));
     }
+
+    [Fact]
+    public void RestSite_Healthy_OnlyAllyTargetingAndHealLeft_FallsBackToHeal()
+    {
+        // The rest-site completion pin: when every preferred option is excluded
+        // (ally-targeting) or already failed, the brain falls back to Heal — which
+        // the engine guarantees succeeds — so a phantom rest site always completes.
+        Assert.Equal(1, TrivialPolicy.PickRestSiteOption(80, 80, Options("MEND", "HEAL")));
+    }
+
+    [Fact]
+    public void RestSite_Healthy_OnlyAllyTargetingLeft_NoMove()
+    {
+        Assert.Null(TrivialPolicy.PickRestSiteOption(80, 80, Options("MEND")));
+    }
 }
 
 public class RestSiteAllyTargetTests

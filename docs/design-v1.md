@@ -108,6 +108,11 @@ Per the locked decisions:
 - **Brain boundary**: the policy receives a structured snapshot (game state + legal-action list) and returns *candidate* actions. **The control layer validates every candidate against the legal-action list before enqueue** — the brain is untrusted; invalid output is discarded/retried, never executed. (User requirement.)
 - v1 policy: random legal card play; abstain-by-readying otherwise.
 
+**Room pacing — the vote gate (user-approved, M7 hardening):** a phantom paces itself through its own map vote. Map movement in vanilla is *unanimous* (`MapSelectionSynchronizer` requires every player's vote before `MoveToMapCoord`), so the phantom casts its vote only when **(a) its brain has given a terminal answer — act or explicit abstain — for every decision flow the current room presented (rewards / shop / rest / event), and (b) the host's vote is known** (mirrored). Whichever condition completes second triggers the vote. Consequences:
+
+- "Done" is a **brain choice**, never inferred from state cleanliness: an abstained card reward legitimately remains on screen while the phantom is done. Brain answers are conceptually tri-state (act / abstain / undecided); the synchronous trivial brain never says "undecided", but the distinction becomes load-bearing for a real async (LLM) brain — a slow brain simply makes the party wait at the map, exactly like a slow human. No host politeness is assumed or required.
+- **Boundary hygiene (cleanup, never pacing):** vanilla force-skips the *local* player's leftover reward sets at room exit (`BeforeLeavingRoom`); phantoms have no "local", so the control layer mirrors that step for phantom leftover sets at the same vanilla moment, forged to guests. Without it, abstained sets would leak open on every peer for the rest of the run.
+
 ### 3.6 Save / resume
 
 Recon finding: vanilla `RunManager.CanonicalizeSave(save, localPlayerId)` only validates that the **host's own** id is in the save; the phantom's entry rides through harmlessly, and `SerializablePlayer` stores only `net_id` (no Steam validation). Design:

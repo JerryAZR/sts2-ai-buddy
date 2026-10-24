@@ -39,6 +39,14 @@ public static class MapDriver
 
         Player? host = LocalContext.GetMe(state);
         MapCoord? hostVote = host == null ? null : sync.GetVote(host)?.coord;
+        if (!LocalContext.IsMe(player) && !session.BrainDoneWithRoom(player.NetId))
+        {
+            // The vote gate: the phantom votes only once its brain has given terminal
+            // answers for everything this room presented (act or abstain). Map movement
+            // is unanimous in vanilla (_votes.All), so the party simply waits — pacing
+            // comes from the phantom's own vote, never from host politeness.
+            return;
+        }
         List<MapCoord> legalDestinations = state.CurrentMapCoord is { } current
             ? state.Map.GetPoint(current)?.Children.OrderBy(c => c.coord.col).Select(c => c.coord).ToList() ?? new List<MapCoord>()
             : state.Map.GetPointsInRow(0).OrderBy(p => p.coord.col).Select(p => p.coord).ToList();

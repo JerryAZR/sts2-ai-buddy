@@ -30,6 +30,10 @@ public static class ShopDriver
         {
             return;
         }
+        if (!LocalContext.IsMe(player))
+        {
+            PhantomSession.Current?.MarkFlowActive(player.NetId, PhantomSession.RoomFlow.Shop);
+        }
 
         // Candidates per the user-locked rule: 3rd relic, colorless cards, potions, card removal.
         var entries = new List<MerchantEntry>();
@@ -76,6 +80,11 @@ public static class ShopDriver
         {
             // Done shopping: room exit is a local-UI step (NMerchantRoom.ProceedButton).
             session.LocalShopPendingProceed = true;
+        }
+        else if (!bought)
+        {
+            // Brain bought everything it wanted: terminal answer for this room's shop.
+            PhantomSession.Current?.MarkFlowBrainDone(player.NetId, PhantomSession.RoomFlow.Shop);
         }
     }
 }

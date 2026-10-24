@@ -32,12 +32,20 @@ public static class RestSiteDriver
         {
             return;
         }
+        if (!isLocalAutoplay)
+        {
+            session.MarkFlowActive(player.NetId, PhantomSession.RoomFlow.Rest);
+        }
         if (options.Count == 0)
         {
             // Completion: ChooseOption empties the list (chosen options are removed;
             // hooks may clear the rest) and the synchronizer completes the site.
             session.RestSiteOptions.Remove(player.NetId);
             session.RestSiteAttempts.Remove(player.NetId);
+            if (!isLocalAutoplay)
+            {
+                session.MarkFlowBrainDone(player.NetId, PhantomSession.RoomFlow.Rest);
+            }
             Observability.EventLog.Write("mod", "rest_site_done", new { netId = player.NetId });
             if (isLocalAutoplay)
             {
@@ -55,7 +63,14 @@ public static class RestSiteDriver
             .ToList();
         if (available.Count == 0)
         {
-            return; // everything left already failed once — wait for the room to resolve
+            // Every remaining option failed once: the brain has no legal intent left —
+            // terminal for this room. (Vanilla completes the site mechanically on any
+            // success; this path is only reachable if even Heal somehow fails.)
+            if (!isLocalAutoplay)
+            {
+                session.MarkFlowBrainDone(player.NetId, PhantomSession.RoomFlow.Rest);
+            }
+            return;
         }
 
         var view = available.Select(x => new RestSiteOptionView(x.index, x.option.OptionId, x.option is MendRestSiteOption)).ToList();

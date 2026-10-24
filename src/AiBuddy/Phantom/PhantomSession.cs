@@ -69,6 +69,40 @@ public sealed class PhantomSession
     /// <summary>Dead-buddy panics (woken by a race, force re-ended) logged once per buddy per session.</summary>
     public HashSet<ulong> DeadBuddyPanicLogged { get; } = new();
 
+    /// <summary>Room-scope decision flows a phantom's brain must answer before it may vote.</summary>
+    public enum RoomFlow { Rewards, Shop, Rest, Event }
+
+    /// <summary>Flows the current room has presented to each phantom (vote gate).</summary>
+    public Dictionary<ulong, HashSet<RoomFlow>> FlowActive { get; } = new();
+    /// <summary>Flows the brain has given its TERMINAL answer for (act or explicit abstain).
+    /// Done-ness is a brain choice, never inferred from state cleanliness: an abstained
+    /// reward legitimately remains on screen while the phantom is done. Slow/async brains
+    /// simply take longer to mark done — the party waits, exactly like for a human.</summary>
+    public Dictionary<ulong, HashSet<RoomFlow>> FlowBrainDone { get; } = new();
+
+    public void MarkFlowActive(ulong netId, RoomFlow flow) =>
+        (FlowActive.TryGetValue(netId, out var set) ? set : FlowActive[netId] = new HashSet<RoomFlow>()).Add(flow);
+
+    public void MarkFlowBrainDone(ulong netId, RoomFlow flow)
+    {
+        if (FlowActive.TryGetValue(netId, out var active) && active.Contains(flow))
+        {
+            (FlowBrainDone.TryGetValue(netId, out var done) ? done : FlowBrainDone[netId] = new HashSet<RoomFlow>()).Add(flow);
+        }
+    }
+
+    /// <summary>True when every flow this room activated for the phantom has a terminal brain answer.</summary>
+    public bool BrainDoneWithRoom(ulong netId) =>
+        !FlowActive.TryGetValue(netId, out var active)
+        || (FlowBrainDone.TryGetValue(netId, out var done) && active.IsSubsetOf(done));
+
+    /// <summary>Room boundary: a new room presents new flows.</summary>
+    public void ResetRoomFlows()
+    {
+        FlowActive.Clear();
+        FlowBrainDone.Clear();
+    }
+
     private PhantomSession(INetGameService? netService) => _netService = netService;
 
     /// <summary>A new lobby/run becomes the current session, discarding all prior state.</summary>

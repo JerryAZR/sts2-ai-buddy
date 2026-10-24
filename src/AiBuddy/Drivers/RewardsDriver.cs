@@ -48,6 +48,10 @@ public static class RewardsDriver
         {
             return;
         }
+        if (!isLocalAutoplay)
+        {
+            session.MarkFlowActive(player.NetId, PhantomSession.RoomFlow.Rewards);
+        }
         if (sync.IsRewardsSetCompleted(set))
         {
             CleanupSet(session, player.NetId, set, isLocalAutoplay);
@@ -139,6 +143,40 @@ public static class RewardsDriver
             if (stack.Count == 0)
             {
                 session.ActiveRewardSets.Remove(netId);
+                // All offered sets acted on or abstained-and-closed: the brain is done.
+                session.MarkFlowBrainDone(netId, PhantomSession.RoomFlow.Rewards);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Room-exit hygiene (vanilla mirror): BeforeLeavingRoom force-skips the LOCAL
+    /// player's leftover sets, but phantoms have no "local" anywhere — a set a brain
+    /// abstained on would leak open on every peer for the rest of the run. Called at
+    /// the same vanilla moment (old room still the current location). Never cuts a
+    /// brain short: the vote gate means the phantom already declared itself done.
+    /// </summary>
+    public static void SkipPhantomLeftoverSets()
+    {
+        if (PhantomSession.Current is not { } session || RunManager.Instance?.RewardsSetSynchronizer is not { } sync)
+        {
+            return;
+        }
+        foreach ((ulong netId, List<RewardsSet> stack) in session.ActiveRewardSets.ToList())
+        {
+            foreach (RewardsSet set in stack.ToArray().Reverse())
+            {
+                if (session.RewardSkipSent.Add(set))
+                {
+                    Observability.EventLog.Write("mod", "phantom_rewards_exit_skip", new { netId, setId = set.Id });
+                    var message = new RewardSetSkippedMessage
+                    {
+                        location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
+                        setId = set.Id,
+                    };
+                    sync.HandleRewardSetSkippedMessage(message, netId);
+                    PhantomNet.BroadcastAsPhantom(netId, message);
+                }
             }
         }
     }

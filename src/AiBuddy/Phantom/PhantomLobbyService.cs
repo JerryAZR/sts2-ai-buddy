@@ -30,6 +30,10 @@ public static class PhantomLobbyService
         typeof(StartRunLobby).GetMethod("UpdateMaxMultiplayerAscension", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("StartRunLobby.UpdateMaxMultiplayerAscension");
 
+    private static readonly MethodInfo BeginRunIfAllReady =
+        typeof(StartRunLobby).GetMethod("BeginRunForAllPlayersIfAllReady", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingMethodException("StartRunLobby.BeginRunForAllPlayersIfAllReady");
+
     /// <summary>Add one phantom to the lobby.</summary>
     public static (AddResult result, PhantomDescriptor? phantom) AddPhantom(StartRunLobby lobby, PhantomSession session)
     {
@@ -74,6 +78,9 @@ public static class PhantomLobbyService
             ready.isReady = true;
             lobby.Players[index] = ready;
             lobby.LobbyListener.PlayerChanged(ready, false);
+            // Vanilla's ready handler ends with this begin-check; replicate it so a
+            // phantom readied after everyone else still lets the run start.
+            BeginRunIfAllReady.Invoke(lobby, null);
         }
 
         // Tell any connected guests. Broadcast fans out to connected peers only,

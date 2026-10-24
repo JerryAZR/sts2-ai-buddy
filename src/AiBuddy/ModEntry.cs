@@ -40,6 +40,7 @@ public static class ModEntry
         typeof(Patches.PhantomEnemyTurnReadyPatch),
         typeof(Patches.PlayCardCancelPatch),
         typeof(Patches.CombatActButtonPatch),
+        typeof(Patches.RoomExitHygienePatch),
         typeof(Patches.AutomationTick),
     };
 
@@ -83,6 +84,7 @@ public static class ModEntry
         "PlayCardAction.CancelAction",
         "GameActionPlayerChoiceContext.SignalPlayerChoiceEnded",
         "RestSiteSynchronizer.BeginRestSite",
+        "RewardsSetSynchronizer.BeforeLeavingRoom",
         "NCombatRoom._Ready",
     };
 
