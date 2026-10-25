@@ -41,6 +41,7 @@ public static class ModEntry
         typeof(Patches.PlayCardCancelPatch),
         typeof(Patches.CombatActButtonPatch),
         typeof(Patches.RoomExitHygienePatch),
+        typeof(Patches.ShopPurchaseForgePatch),
         typeof(Patches.AutomationTick),
     };
 
@@ -90,6 +91,10 @@ public static class ModEntry
         "RestSiteSynchronizer.BeginRestSite",
         "RewardsSetSynchronizer.BeforeLeavingRoom",
         "NCombatRoom._Ready",
+        "RewardSynchronizer.SyncLocalGoldLost",
+        "RewardSynchronizer.SyncLocalObtainedCard",
+        "RewardSynchronizer.SyncLocalObtainedRelic",
+        "RewardSynchronizer.SyncLocalObtainedPotion",
     };
 
     public static void Initialize()
