@@ -25,9 +25,11 @@ verified with a real vanilla guest over ENet (lobby + in-run, no visible flaws):
   (IL scan); zero blocking primitives in all 68 events + all cards (IL scan).
 
 **Next up (ordered):**
-1. Shop purchase forging (`SyncLocalGoldLost`/`RewardObtainedMessage`/
-   `CardRemovedMessage`/`MerchantCardRemovalMessage` stamp the host — phantom
-   buys desync guests; avoid shops in live-guest tests until fixed).
+1. Live-guest e2e for shop purchase forging (implemented in 136a660, host-side
+   soak-verified): confirm a guest applies phantom-stamped gold/reward/removal
+   messages and stays checksum-clean through a shop visit. Nuance to watch:
+   phantom card-removal skips `AfterItemPurchased`/`PurchaseCompleted` hooks
+   (local-only, sim-safe — but a purchase-hook relic won't see phantom removals).
 2. M6 save/resume (phantoms across save → quit → resume).
 3. Crystal Sphere (act-3 bespoke minigame; deferred).
 4. M8 polish: character picker (Ironclad hardcoded), display names, chat narration.

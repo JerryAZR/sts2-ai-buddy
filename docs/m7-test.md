@@ -19,9 +19,10 @@ You play the guest; the host plays itself (autopilot).
 ### 1. Launch the host (modded, self-driving)
 
 ```bash
-cd C:/Users/Jerry/Projects/Mods/sts2-ai-buddy
+cd ~/Projects/mods/sts2-ai-buddy
+G="$HOME/.local/share/Steam/steamapps/common/Slay the Spire 2"
 AIBUDDY_AUTO_PHANTOMS=2 AIBUDDY_AUTOPLAY_LOCAL=1 \
-  "C:/Program Files (x86)/Steam/steamapps/common/Slay the Spire 2/SlayTheSpire2.exe" \
+  "$G/SlayTheSpire2" \
   --force-steam off --fastmp host_standard > build/logs/m7-host.log 2>&1 &
 ```
 
@@ -30,7 +31,8 @@ Wait ~30s for the lobby (char select) to be up.
 ### 2. Launch the guest (vanilla)
 
 ```bash
-"C:/Program Files (x86)/Steam/steamapps/common/Slay the Spire 2/SlayTheSpire2.exe" \
+G="$HOME/.local/share/Steam/steamapps/common/Slay the Spire 2"
+"$G/SlayTheSpire2" \
   --force-steam off --nomods --fastmp join --clientId 2 > build/logs/m7-guest.log 2>&1 &
 ```
 
@@ -43,17 +45,21 @@ Wait ~30s for the lobby (char select) to be up.
 
 ### 4. What to check after
 
-- **Guest log** (`build/logs/m7-guest.log` + `%APPDATA%/SlayTheSpire2/logs/`):
+- **Guest log** (`build/logs/m7-guest.log` + `~/.local/share/SlayTheSpire2/logs/`):
   any "state diverged" / checksum errors = FAIL (name the action).
   Hangs = last `WAITING`-ish line names the missing fabrication.
-- **Host event log** (newest `%APPDATA%\sts2-ai-buddy\logs\session-*.jsonl`):
+- **Host event log** (newest `~/.config/sts2-ai-buddy/logs/session-*.jsonl`):
   `forged_broadcast` events show every phantom → guest message.
 
 ## Known gaps / expected issues
 
-- **Shop purchases by phantoms don't reach guests** (`SyncLocal*` stamps the host,
-  not the phantom). Phantom shop buys will desync the guest — AVOID shops with a
-  live guest, or expect the diverge. Forging for purchases is TODO.
+- **Shop purchases by phantoms: forging implemented** (gold/reward/removal
+  messages re-broadcast with the phantom as wire sender; removal rides the
+  deck-choice fabrication). Host-side soak-verified, NOT yet confirmed with a
+  live guest — include a shop visit in the e2e and check the guest's phantom
+  gold/deck/relics (not the host's) plus checksums. Nuance: phantom card-removal
+  skips `AfterItemPurchased`/`PurchaseCompleted` hooks (local-only, sim-safe for
+  guests — but a purchase-hook relic won't see phantom removals).
 - Shared/collaborative events: SUPPORTED (phantoms vote via fabricated
   `VotedForSharedEventOptionMessage`; host tallies as usual). Event-spawned
   fights covered by the combat driver.
@@ -65,4 +71,4 @@ Wait ~30s for the lobby (char select) to be up.
 
 ## Kill switch
 
-`taskkill //IM SlayTheSpire2.exe` (both instances share the process name).
+`pkill -f SlayTheSpire2` (both instances share the process name).
