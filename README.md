@@ -30,8 +30,11 @@ verified with a real vanilla guest over ENet (lobby + in-run, no visible flaws):
    messages and stays checksum-clean through a shop visit. Nuance to watch:
    phantom card-removal skips `AfterItemPurchased`/`PurchaseCompleted` hooks
    (local-only, sim-safe — but a purchase-hook relic won't see phantom removals).
-2. M6 save/resume (phantoms across save → quit → resume).
-3. Crystal Sphere (act-3 bespoke minigame; deferred).
+2. ~~M6 save/resume~~ DONE (29f5c0c): phantoms re-inject from the save on
+   Continue / `--fastmp load`; corrupt-rename guard; 6/6 headless resumes clean.
+3. Crystal Sphere (act-3 bespoke minigame; deferred — its
+   `CrystalSphereCurse.SyncLocalObtainedCard` send will need the shop-forge
+   treatment).
 4. M8 polish: character picker (Ironclad hardcoded), display names, chat narration.
 
 **Notes:**
