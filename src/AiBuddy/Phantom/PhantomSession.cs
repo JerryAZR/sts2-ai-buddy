@@ -25,6 +25,14 @@ public sealed class PhantomSession
     /// <summary>Default base of the phantom NetId range. Real SteamID64s are 17 digits — no collision.</summary>
     public const ulong DefaultBaseNetId = 1001;
 
+    /// <summary>
+    /// Resume identification band (M6): a saved player is a phantom iff its net_id lands in
+    /// [DefaultBaseNetId, DefaultBaseNetId + 1000). Real ids can't collide — SteamID64s are
+    /// 17 digits and ENet test peers count up from 1 — and this is only an *identification*
+    /// rule; fabrication decisions still require !IsLivePeer (see <see cref="IsPhantom"/>).
+    /// </summary>
+    public static bool IsPhantomRangeId(ulong netId) => netId >= DefaultBaseNetId && netId < DefaultBaseNetId + 1000;
+
     public static PhantomSession? Current { get; private set; }
 
     private readonly INetGameService? _netService; // null only in unit tests

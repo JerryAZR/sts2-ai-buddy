@@ -42,6 +42,9 @@ public static class ModEntry
         typeof(Patches.CombatActButtonPatch),
         typeof(Patches.RoomExitHygienePatch),
         typeof(Patches.ShopPurchaseForgePatch),
+        typeof(Patches.LoadLobbyPhantomPatch),
+        typeof(Patches.LoadLobbyAutoplayPatch),
+        typeof(Patches.SaveGuardPatch),
         typeof(Patches.AutomationTick),
     };
 
@@ -70,6 +73,7 @@ public static class ModEntry
         typeof(Drivers.OverlayDrainDriver),
         typeof(Drivers.TestEventSplicePatch),
         typeof(Patches.RestSiteCapturePatch),
+        typeof(Patches.LoadLobbyAutoplayPatch),
     };
 
     /// <summary>Game methods every build expects to have patched (DeclaringType.MethodName).</summary>
@@ -95,6 +99,9 @@ public static class ModEntry
         "RewardSynchronizer.SyncLocalObtainedCard",
         "RewardSynchronizer.SyncLocalObtainedRelic",
         "RewardSynchronizer.SyncLocalObtainedPotion",
+        "LoadRunLobby.AddLocalHostPlayer",
+        "NMultiplayerLoadGameScreen.InitializeAsHost",
+        "RunSaveManager.RenameBrokenMultiplayerRunSave",
     };
 
     public static void Initialize()

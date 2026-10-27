@@ -38,6 +38,21 @@ public static class PhantomLobbyService
         typeof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.PeerInputSynchronizer).GetMethod("HandlePeerInputMessage", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("PeerInputSynchronizer.HandlePeerInputMessage");
 
+    /// <summary>
+    /// Seed a phantom's peer-input state on a synchronizer (lobby or load-lobby — both
+    /// flow into the run) and forge the same message to guests. Shared by the fresh-run
+    /// join path and the M6 resume path.
+    /// </summary>
+    public static void SeedPeerInput(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.PeerInputSynchronizer sync, ulong netId)
+    {
+        var peerInput = new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage
+        {
+            screenType = MegaCrit.Sts2.Core.Entities.Multiplayer.NetScreenType.None,
+        };
+        HandlePeerInput.Invoke(sync, new object[] { peerInput, netId });
+        PhantomNet.BroadcastAsPhantom(netId, peerInput);
+    }
+
     /// <summary>Add one phantom to the lobby.</summary>
     public static (AddResult result, PhantomDescriptor? phantom) AddPhantom(StartRunLobby lobby, PhantomSession session)
     {
@@ -98,12 +113,7 @@ public static class PhantomLobbyService
         // (the lazy path re-enters NHandImageCollection.AddHand -> double-add error,
         // on guests too). The lobby's synchronizer instance flows into the run, so
         // this persists. Guests who join LATER get the forge at run start (tick).
-        var peerInput = new MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage
-        {
-            screenType = MegaCrit.Sts2.Core.Entities.Multiplayer.NetScreenType.None,
-        };
-        HandlePeerInput.Invoke(lobby.InputSynchronizer, new object[] { peerInput, descriptor.NetId });
-        PhantomNet.BroadcastAsPhantom(descriptor.NetId, peerInput);
+        SeedPeerInput(lobby.InputSynchronizer, descriptor.NetId);
 
         Observability.EventLog.Write("mod", "phantom_added", new
         {

@@ -55,4 +55,34 @@ public class SessionTests
         Assert.Throws<InvalidOperationException>(() => session.RegisterPhantom("dupe", firstId));
         Assert.Single(session.Phantoms);
     }
+
+    [Fact]
+    public void IsPhantomRangeId_OnlyThePhantomBand()
+    {
+        // Resume identifies phantoms by saved net_id alone: the band must cover the
+        // allocation range and exclude everything real — ENet test peers count up
+        // from 1; SteamID64s are 17 digits (design hard rule: never fabricate for
+        // real clients, KitLib's NetId-1001 collision).
+        Assert.False(PhantomSession.IsPhantomRangeId(1));   // ENet host
+        Assert.False(PhantomSession.IsPhantomRangeId(4));   // ENet guest
+        Assert.False(PhantomSession.IsPhantomRangeId(1000));
+        Assert.True(PhantomSession.IsPhantomRangeId(PhantomSession.DefaultBaseNetId));
+        Assert.True(PhantomSession.IsPhantomRangeId(PhantomSession.DefaultBaseNetId + 3));
+        Assert.False(PhantomSession.IsPhantomRangeId(PhantomSession.DefaultBaseNetId + 1000));
+        Assert.False(PhantomSession.IsPhantomRangeId(76561198000000000UL)); // SteamID64
+    }
+
+    [Fact]
+    public void ResumeRegistration_ExplicitIdsStayStableAndAllocationSkipsThem()
+    {
+        // M6: resume re-registers the ids recorded in the save — identity is stable
+        // per save, and any later allocation must not collide with a resumed id.
+        PhantomSession session = PhantomSession.StartNewForTest();
+        session.RegisterPhantom("Buddy 1001", PhantomSession.DefaultBaseNetId);
+        session.RegisterPhantom("Buddy 1002", PhantomSession.DefaultBaseNetId + 1);
+
+        Assert.Equal(PhantomSession.DefaultBaseNetId + 2, session.PeekNextId());
+        Assert.Equal(new[] { PhantomSession.DefaultBaseNetId, PhantomSession.DefaultBaseNetId + 1 },
+            session.Phantoms.Select(p => p.NetId));
+    }
 }
