@@ -42,6 +42,38 @@ public static class OverlayDrainDriver
         typeof(NTreasureRoom).GetMethod("OpenChest", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new MissingMethodException("NTreasureRoom.OpenChest");
 
+    private static readonly FieldInfo CrystalSphereEntity =
+        typeof(MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere.NCrystalSphereScreen).GetField("_entity", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?? throw new MissingFieldException("NCrystalSphereScreen._entity");
+
+    private static readonly Random CellRng = new();
+
+    private static void DrainCrystalSphere(MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere.NCrystalSphereScreen screen)
+    {
+        var minigame = (MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent.CrystalSphereMinigame)CrystalSphereEntity.GetValue(screen)!;
+        if (!minigame.IsFinished)
+        {
+            var hidden = new List<MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent.CrystalSphereCell>();
+            foreach (var cell in minigame.cells)
+            {
+                if (cell.IsHidden)
+                {
+                    hidden.Add(cell);
+                }
+            }
+            if (hidden.Count > 0)
+            {
+                MegaCrit.Sts2.Core.Helpers.TaskHelper.RunSafely(minigame.CellClicked(hidden[CellRng.Next(hidden.Count)]));
+                Observability.EventLog.Write("mod", "autopilot_crystal_sphere_click", new { remaining = minigame.DivinationCount });
+            }
+            return;
+        }
+        if (ClickFirst(screen, "ProceedButton"))
+        {
+            Observability.EventLog.Write("mod", "autopilot_crystal_sphere_proceed");
+        }
+    }
+
     public static void Tick()
     {
         NOverlayStack? stack = NOverlayStack.Instance;
@@ -116,6 +148,15 @@ public static class OverlayDrainDriver
         if (bundleScreen != null)
         {
             DrainBundle(bundleScreen);
+            return;
+        }
+
+        // Crystal Sphere minigame (local autopilot): click a random hidden cell per
+        // tick until divinations run out, then proceed. The game's AutoSlay handler
+        // is dead on release builds, so we drive the model directly.
+        if (top is MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere.NCrystalSphereScreen sphereScreen)
+        {
+            DrainCrystalSphere(sphereScreen);
             return;
         }
 

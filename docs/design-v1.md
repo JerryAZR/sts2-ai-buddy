@@ -97,7 +97,7 @@ Plus lobby ready states, `CombatManager`'s two ready sets, and checksums (client
 
 **Card-select prompts** ("pick a card to remove", "choose a card") are a distinct mechanism: resolved host-side for the phantom via the `CardSelectCmd.UseSelector` / `ICardSelector` seam (care: global static stack — scope installs tightly) or by driving the native screen; the result propagates via the normal choice/action messages.
 
-**Crystal Sphere is NOT a special protocol case**: the minigame is fully local per player (grid + placement RNG live on the owning client only); the sole wire artifact is the final `CrystalSphereRewardsMessage` via `OneOffSynchronizer.DoLocalCrystalSphereRewards`. Phantom handling = play/solve the grid host-locally with the game's own `CrystalSphereMinigame` class; outcome flows through the standard fabrication path. Deferred anyway (act-3-only; see milestones).
+**Crystal Sphere is NOT a special protocol case**: the minigame is fully local per player (grid + clicks never leave the machine); the sole wire artifact is one `CrystalSphereRewardsMessage` (revealed items = type + rarity flag) per player, validated only by sender != local + sender-in-event; `IsDeterministic => false` means no exit checksum. Results are FABRICATED (no solver): the phantom's event clone finishes on all peers without a minigame (non-local owners skip `PlayMinigame`); we apply a budget-policy outcome via reflected `OneOffSynchronizer.OfferCrystalSphereRewards` and forge the message. Budget policy (user-locked): budget = the option's divination count (Uncover Future 3 / Payment Plan 6, read from DynamicVars); cards + rare potion cost 1pt, relic 4pt, each at most once; plus random gold 20/30/40 and 0-2 common potions (45/45/10). Curse is never fabricated (guest-side `ToReward` null + host-stamped Doubt add). NOTE: pool membership in `AllSharedEvents` notwithstanding, `CrystalSphere.IsShared` is NOT overridden — it rides the per-player option flow; it can spawn from act 2 (all players >= 100 gold), not act-3-only as previously assumed. The local autopilot drives the real screen (`NCrystalSphereScreen._entity.CellClicked` on hidden cells, then proceed).
 
 ### 3.5 Control layer (host-gated, owns all mechanical confirmations)
 
@@ -145,9 +145,9 @@ Ordered by **gameplay order** (user decision): each milestone extends how far a 
 | **Shop purchase forging** ✅ (pending live-guest e2e) | `PhantomPurchaseContext` (AsyncLocal) + `ShopPurchaseForgePatch` suppress-and-reforge of `SyncLocal*` sends with the phantom as wire sender; card removal replicates `DoMerchantCardRemoval` with forged `MerchantCardRemovalMessage` (`CardRemovedMessage` vestigial) | Phantom shop purchase with live guest, no diverge — **run e2e with a shop visit** |
 | **M8 — polish** ⬜ | Host-side display names, character picker (replaces hardcoded Ironclad), chat narration, config UI | — |
 
-**Cross-cutting hardening landed (M7 spike review):** vote gate (§3.5 — phantoms pace themselves via the unanimous map vote; "done" is a brain choice, tri-state act/abstain/undecided); room-exit reward hygiene (vanilla `BeforeLeavingRoom` mirror, forged); `PhantomNet` per-peer resilience; mechanical coverage pins (IL scans: all `WaitForRemoteChoice` sites captured; zero blocking primitives in all 68 events + all cards). Known deferrals: Crystal Sphere (act 3); relic-fight RPS auto-resolves model-side (dupes avoided by policy).
+**Cross-cutting hardening landed (M7 spike review):** vote gate (§3.5 — phantoms pace themselves via the unanimous map vote; "done" is a brain choice, tri-state act/abstain/undecided); room-exit reward hygiene (vanilla `BeforeLeavingRoom` mirror, forged); `PhantomNet` per-peer resilience; mechanical coverage pins (IL scans: all `WaitForRemoteChoice` sites captured; zero blocking primitives in all 68 events + all cards). Known deferrals: none in the event surface (Crystal Sphere fabricated — see §3.4); relic-fight RPS auto-resolves model-side (dupes avoided by policy).
 
-M1–M6 are fully host-only (ENet loopback, no second account). Act 2 is expected to reuse the same seams unchanged; act-3 Crystal Sphere is the only known bespoke content and is deferred (§6).
+M1–M6 are fully host-only (ENet loopback, no second account). Act 2 reuses the same seams unchanged, Crystal Sphere included (fabricated, §3.4); no bespoke act-3 content is currently known.
 
 ## 5. Testing strategy
 
@@ -160,7 +160,7 @@ M1–M6 are fully host-only (ENet loopback, no second account). Act 2 is expecte
 
 - No custom message types, no guest-side mod, no enhanced guest HUD (§4.3 of the feasibility report — presence-gated pattern if ever needed).
 - No real AI policy (heuristic/LLM brains plug into the validated control protocol later).
-- No Crystal Sphere de-minigaming (the minigame is protocol-trivial — one outcome message — but the local solver + brain UX is real work; act-3-only, so a conservative generic handler covers v1).
+- Crystal Sphere: solved by fabrication, not solver (§3.4 — one outcome message, no minigame data on the wire; budget policy decides the outcome).
 - Act-2+ content is expected to ride the same seams; anything that doesn't gets conservative-default + loud-log treatment.
 - No >4 player lobbies (requires RMP player-limit mod on *all* clients — incompatible with vanilla guests).
 - No mid-campaign phantom add/remove (lobby-only, like vanilla players).

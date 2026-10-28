@@ -74,5 +74,22 @@ public sealed record EventOptionView(int Index, bool Locked, bool WillKill, stri
 
 public sealed record EventView(string EventId, IReadOnlyList<EventOptionView> Options);
 
+/// <summary>
+/// Crystal Sphere budget catalog (user-locked policy framing): the event's two minigame
+/// options grant a point budget (Uncover Future = 3, Payment Plan = 6) which the brain
+/// spends on any combination of these — each at most once. Gold and common-potion extras
+/// are control-layer atmosphere (random), never brain decisions. The curse is never
+/// fabricated (guest-side asymmetry: its ToReward is null; the Doubt add is host-stamped).
+/// </summary>
+public enum CrystalSphereItemId { CommonCard, UncommonCard, RareCard, RarePotion, Relic }
+
+/// <summary>Point costs for the Crystal Sphere budget (user-locked): cards and the rare potion cost 1; the relic costs 4 (affordable only via Payment Plan).</summary>
+public static class CrystalSphereCatalog
+{
+    public static readonly IReadOnlyList<CrystalSphereItemId> All = Enum.GetValues<CrystalSphereItemId>();
+
+    public static int Cost(CrystalSphereItemId id) => id == CrystalSphereItemId.Relic ? 4 : 1;
+}
+
 /// <summary>Map vote view. MirrorHostVote: phantoms mirror the host's vote (locked design decision).</summary>
 public sealed record MapPickView(bool MirrorHostVote, MapCoord? HostVote, IReadOnlyList<MapCoord> LegalDestinations);

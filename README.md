@@ -32,9 +32,11 @@ verified with a real vanilla guest over ENet (lobby + in-run, no visible flaws):
    (local-only, sim-safe — but a purchase-hook relic won't see phantom removals).
 2. ~~M6 save/resume~~ DONE (29f5c0c): phantoms re-inject from the save on
    Continue / `--fastmp load`; corrupt-rename guard; 6/6 headless resumes clean.
-3. Crystal Sphere (act-3 bespoke minigame; deferred — its
-   `CrystalSphereCurse.SyncLocalObtainedCard` send will need the shop-forge
-   treatment).
+3. ~~Crystal Sphere~~ DONE: no solver needed — the wire contract is one
+   outcome message (`CrystalSphereRewardsMessage`, items = type + rarity);
+   phantom outcomes fabricated per the user-locked budget policy (cards/rare
+   potion 1pt, relic 4pt; budget 3/6; random gold + common potions; curse
+   never fabricated). Appears from act 2 (not act-3-only as once assumed).
 4. M8 polish: character picker (Ironclad hardcoded), display names, chat narration.
 
 **Notes:**

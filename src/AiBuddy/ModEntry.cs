@@ -54,6 +54,8 @@ public static class ModEntry
         typeof(Observability.WaitTracer),
         typeof(Patches.RoomExitDiagnostics),
         typeof(Drivers.TestEventSplicePatch),
+        typeof(Drivers.TestEventGateBypassPatch),
+        typeof(Drivers.TestEventUnknownRollPatch),
     };
 
     /// <summary>Classes whose static initializers resolve game members via reflection (?? throw).</summary>
@@ -72,8 +74,11 @@ public static class ModEntry
         typeof(Drivers.TreasureDriver),
         typeof(Drivers.OverlayDrainDriver),
         typeof(Drivers.TestEventSplicePatch),
+        typeof(Drivers.TestEventGateBypassPatch),
+        typeof(Drivers.TestEventUnknownRollPatch),
         typeof(Patches.RestSiteCapturePatch),
         typeof(Patches.LoadLobbyAutoplayPatch),
+        typeof(Drivers.CrystalSphereDriver),
     };
 
     /// <summary>Game methods every build expects to have patched (DeclaringType.MethodName).</summary>

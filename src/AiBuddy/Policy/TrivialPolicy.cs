@@ -163,6 +163,33 @@ public static class TrivialPolicy
     }
 
     /// <summary>Map votes: phantoms mirror the host (locked decision); the local autopilot takes the first legal destination.</summary>
+    /// <summary>
+    /// Crystal Sphere budget spend (user-locked): shuffled greedy within budget —
+    /// any combination of catalog items, each at most once. Budget 3 never affords
+    /// the relic (cost 4); budget 6 can take the relic + two 1-pointers.
+    /// </summary>
+    public static IReadOnlyList<CrystalSphereItemId> PickCrystalSphereRewards(int budget)
+    {
+        var catalog = CrystalSphereCatalog.All.ToList();
+        for (int i = catalog.Count - 1; i > 0; i--)
+        {
+            int j = Rng.Next(i + 1);
+            (catalog[i], catalog[j]) = (catalog[j], catalog[i]);
+        }
+        var picks = new List<CrystalSphereItemId>();
+        int spent = 0;
+        foreach (CrystalSphereItemId id in catalog)
+        {
+            int cost = CrystalSphereCatalog.Cost(id);
+            if (spent + cost <= budget)
+            {
+                picks.Add(id);
+                spent += cost;
+            }
+        }
+        return picks;
+    }
+
     public static MapCoord? PickMapDestination(MapPickView view)
         => view.MirrorHostVote
             ? view.HostVote

@@ -132,6 +132,10 @@ public static class EventDriver
             option = ev.CurrentOptions[index].TextKey,
         });
 
+        // Capture BEFORE actuation: the choice can advance the page and shrink
+        // CurrentOptions — reading it after ChooseOptionForEvent races the page flip.
+        string? chosenOptionKey = ev.CurrentOptions[index].TextKey;
+
         if (isLocal)
         {
             sync.ChooseLocalOption(index);
@@ -146,6 +150,13 @@ public static class EventDriver
                 optionIndex = (uint)index,
                 location = RunManager.Instance.RunLocationTargetedBuffer.CurrentLocation,
             });
+            // Crystal Sphere: the minigame is local-only; guests additionally await one
+            // CrystalSphereRewardsMessage per player. Fabricate the phantom's outcome
+            // (budget policy) right after the option so guests process them in order.
+            if (CrystalSphereDriver.BudgetForOption(ev, chosenOptionKey) is int sphereBudget)
+            {
+                CrystalSphereDriver.FabricateRewards(player, sphereBudget);
+            }
         }
     }
 }
