@@ -56,8 +56,9 @@ implemented yet; implementation starts only after the list below is fully walked
      (view shows new offers + current belt); (cards) per set: pick one of the
      offered ids or skip (view shows every set's offerings: set 1: A,B,C;
      set 2: D,E,F; ...).
-- **E. Standing directives** (act-level strategy statement executed by a local
-  heuristic, escalate on novelty) — flagged as optional / probably defer.
+- **E. Standing directives — REJECTED (user).** A–D left no trivial-decision
+  residue for a heuristic to absorb, and a second (interpretation) decision-maker
+  is an unauditable liability.
 
 ## Event census (for B) — mechanical scan, v0.111.0, all 68 events
 
