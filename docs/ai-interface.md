@@ -65,21 +65,27 @@ StoneOfAllTime, Symbiote, WaterloggedScriptorium, Wellspring, WhisperingHollow,
 WoodCarvings, ZenWeaver). Includes DollRoom (pay HP → rolled page 2 — pre-roll
 the reveal in the call) and ancients/Neow (offers rolled at generation).
 
-**6 need discussion** (verdicts mine, see thread):
+**6 flagged — ALL RULED (user-locked):**
 1. **SlipperyBridge** — unbounded HP-cost reroll loop (card-to-lose re-rolled
-   per HoldOn, cost escalates, pool shrinks). Windowed pre-roll proposed.
-2. **EndlessConveyor** — same shape with gold (dish re-rolled per Grab, pool is
-   HP/potion-slot/grab-count dependent, every 5th forced). Windowed pre-roll.
+   per HoldOn, cost escalates, pool shrinks). RULED: pre-roll a window of up to
+   **20** outcomes (arbitrary safety cap; the loop is naturally bounded by HP —
+   LLMs handle tens of choices fine, no tighter cap). Brain commits to "accept
+   the i-th offer" or "leave" in one call.
+2. **EndlessConveyor** — same shape with gold. RULED: same windowed pre-roll,
+   cap 20, naturally bounded by gold.
 3. **TabletOfTruth** — bounded (5) but SEQUENTIAL dependent rolls (each upgrade
-   shrinks the pool); preview needs simulate-apply-then-roll-again. Brain picks
-   stop depth from a fully pre-rolled chain.
-4. **Trial** — defendant rolled at Accept determines page 2; reveal the verdict
-   in the call → generic. DOUBLE_DOWN opens an abandon-run popup: blacklisted,
-   never pre-committed.
-5. **TinkerTime** — offered options themselves rolled, branch-conditionally;
-   pre-roll all 3 branches' rider pairs, present the full 3-branch tree.
-6. **FakeMerchant** — custom shop layout (not options) + FoulPotion→combat;
-   bespoke driver like CrystalSphere, deferred work item.
+   shrinks the pool). RULED: simulate the chain (roll → apply → roll from shrunk
+   pool); brain picks a stop depth from the fully pre-rolled chain.
+4. **Trial** — defendant rolled at Accept determines page 2. RULED: effectively
+   auto-choose Accept: pre-roll + reveal the defendant, and the brain's single
+   call picks among that defendant's page-2 choices. DOUBLE_DOWN (abandon-run
+   popup) blacklisted, never offered.
+5. **TinkerTime** — rolled subsets are 2-of-3 types × 2-of-3 riders per type =
+   exactly 4 reachable cards. RULED: flatten — pre-roll, show all 4 cards, brain
+   picks one; control maps the card back to the (type, rider) option path.
+6. **FakeMerchant** — custom shop layout. RULED: treat as a shop (ShopDriver
+   purchase rule on its inventory); the shared-vote phase already works.
+   Deferred work item, not blocking B.
 
 ## Open questions (not yet discussed)
 
