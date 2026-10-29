@@ -35,11 +35,18 @@ implemented yet; implementation starts only after the list below is fully walked
      actual page wasn't in the predicted set, re-ask for the subtree.
      See "Event census" below for the per-event classification.
 
-## Pending (walk one by one)
-
-- **C. Option + follow-up prompt pairing** (pre-answer the prompt an option
-  deterministically opens: "if REMOVE chosen, remove Strike"; stash + apply,
-  re-ask only on content mismatch).
+   - **C. Option + follow-up prompt pairing — LOCKED (generic rules, user).**
+     Governing principle (refines B's blanket RNG-reveal): **reveal RNG iff a
+     decision in the same call depends on the outcome.** Rules:
+     (1) Removal pickers (deck is in context): agent declares the removal target
+     UPFRONT with the triggering choice; invalid declarations are rejected and
+     the prompt falls through to a live re-ask.
+     (2) Upgrade pickers (Smith, "upgrade a card of your choice"): upfront
+     declaration. Random-target upgrades with no picker stay random.
+     (3) Transforms: agent declares WHICH card upfront; the result is rolled at
+     resolution, unseen — no combination matrix (too much info; the result
+     affects no further decision).
+     (4) Neow: simplify only when convenient — once per run, don't overengineer.
 - **D. Reward-set bundling** (one call per reward set answering card pick +
   potion + relic at once).
 - **E. Standing directives** (act-level strategy statement executed by a local
