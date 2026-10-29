@@ -47,8 +47,15 @@ implemented yet; implementation starts only after the list below is fully walked
      resolution, unseen — no combination matrix (too much info; the result
      affects no further decision).
      (4) Neow: simplify only when convenient — once per run, don't overengineer.
-- **D. Reward-set bundling** (one call per reward set answering card pick +
-  potion + relic at once).
+   - **D. Reward-set bundling — LOCKED (user).** One call per drain episode
+     covering ALL pending sets (sets don't change mid-collection — no re-ask
+     path needed). Collection order stays relic → gold first, UNCONDITIONALLY,
+     no brain decision (no downside relics exist; gold is never wrong). Then the
+     brain call answers, in one shot: (potions) per offered potion: take or
+     leave, and when the belt is full ALSO which belted potion to discard
+     (view shows new offers + current belt); (cards) per set: pick one of the
+     offered ids or skip (view shows every set's offerings: set 1: A,B,C;
+     set 2: D,E,F; ...).
 - **E. Standing directives** (act-level strategy statement executed by a local
   heuristic, escalate on novelty) — flagged as optional / probably defer.
 
