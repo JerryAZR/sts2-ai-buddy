@@ -18,14 +18,21 @@ implemented yet; implementation starts only after the list below is fully walked
    *what* goes in is a later dedicated discussion. (Ids-only vs +rules-text etc.)
 
 4. **Step reduction** (walked one by one):
-   - **A. Whole-turn combat plans — LOCKED.** `TurnPlan { Plays, EndTurn }`
-     replaces `PlayBatch`/`EndTurnIntent`. All plays succeed + EndTurn → executor
-     ends turn (typical turn = 1 call). No EndTurn → brain re-asked with fresh
-     state (today's behavior). Any rejection → kill-chain aborts, EndTurn flag
-     voided, brain re-asked with outcomes. `TurnPlan([], EndTurn:false)` is a
-     contract violation: logged loudly, treated as end-turn (nothing can change
-     mid-turn without a play — an empty no-end answer is an infinite re-ask loop).
+   - **A. Whole-turn combat plans — LOCKED.** `TurnPlan { Actions, EndTurn }`
+     replaces `PlayBatch`/`EndTurnIntent`; Actions are cards AND potions (see
+     interface shape below). All plays succeed + EndTurn → executor ends turn
+     (typical turn = 1 call). No EndTurn → brain re-asked with fresh state.
+     Any rejection → kill-chain aborts, EndTurn flag voided, brain re-asked.
      Brain-beware: EndTurn after playing a draw card forfeits the drawn cards.
+     Violation handling (user-corrected): a plan whose plays ALL fail validation
+     gets a RE-PLAN (the brain sees fresh state; repeated violations are
+     unlikely), not a forced end; the zero-progress watchdog is warn-only
+     escalation (diagnose, don't panic — a stall shows in the wait tracer).
+     Violation feedback is transported as data in the next view (`LastOutcomes`
+     with `contract:` reasons); whether it reaches the LLM prompt is the brain
+     implementation's choice. Sole exception: `TurnPlan([], EndTurn:false)`
+     stays a loud violation + force-end — unlike all-fail, it carries zero new
+     information, so a re-ask is provably identical token burn.
    - **B. Whole-event paths — LOCKED, with RNG revealed.** One call per event:
      the brain receives the full page tree INCLUDING RNG outcomes (justification:
      human players can save & load to peek — parity, not cheating). Examples:
@@ -59,6 +66,34 @@ implemented yet; implementation starts only after the list below is fully walked
 - **E. Standing directives — REJECTED (user).** A–D left no trivial-decision
   residue for a heuristic to absorb, and a second (interpretation) decision-maker
   is an unauditable liability.
+
+## Interface shape (locked in discussion; contract types, not yet implemented)
+
+- **Async pull with pending-decision slots.** Core asks, brain answers when
+  ready: per (phantom, usecase) slot on the session holds Task + CTS. Decision
+  point reached, slot empty → snapshot view, call brain, stash task. Task
+  complete → validate against LIVE state (staleness is normal; validation +
+  kill-chain own it) → actuate. Boundary crossed while pending → cancel + drop;
+  stale answers never actuate. One outstanding request per (phantom, usecase).
+  Core guarantees: immutable snapshot views; feedback as data; cancellation via
+  token. Brain guarantees: completes/cancels/throws eventually; never mutates;
+  ids only. Pacing: a thinking brain = a thinking human (no vanilla turn timer);
+  the vote gate's "undecided" state paces rooms with zero special-casing.
+- **(1) Static self-state in EVERY view** (user-locked): deck, potions/belt,
+  gold, HP/maxHP, relics, max energy — a `SelfState` record embedded in all
+  decision views.
+- **(2) TurnPlan supports potions** (user-locked): actions generalize —
+  `TurnAction = PlayCard(HandIndex, CardId, TargetCombatId?) | UsePotion(BeltSlot, PotionId, TargetCombatId?)`.
+  Potions ride the same action-queue OwnerId seam as cards (no new forge surface).
+- **(4) Push channel** (user-locked): brains may push unsolicited intents
+  anytime (v1 driver: potions usable outside combat). Core drains per tick,
+  validates at actuation. `bool TryTakePushedIntent(out BuddyPushIntent)`.
+- **Lifecycle hooks** on the interface (`OnRunStarted` / `OnActStarted` /
+  `OnBoundary`) — no-ops for stateless brains, context-management points for
+  stateful ones.
+- Refactor path: `TrivialBrain : IBuddyBrain` wraps TrivialPolicy with
+  `Task.FromResult` — synchronous completion keeps every current test/soak
+  behavior bit-for-bit; drivers move usecase by usecase (combat first).
 
 ## Event census (for B) — mechanical scan, v0.111.0, all 68 events
 
@@ -102,12 +137,25 @@ the reveal in the call) and ancients/Neow (offers rolled at generation).
    purchase rule on its inventory); the shared-vote phase already works.
    Deferred work item, not blocking B.
 
-## Open questions (not yet discussed)
+## Open questions
 
-- Async/pending machinery shape (decision parking, cancellation on boundary) —
-  the tri-state answer and vote gate already anticipate it; mechanics TBD.
-- Brain lifecycle: when brains are constructed (lobby add / resume), persona
-  config surface (name, model, key source, prompt).
+- **Brain implementation model** (raised in discussion, deliberately OPEN):
+  long-lived agent session per phantom (conversation + compaction + tool calls —
+  pi's SDK is the reference shape: session owns conversation/tools/compaction,
+  `prompt()` injects messages, intents return via submit-tool/structured output)
+  vs stateless Q→A per decision. If long-lived: **survey existing C# agent
+  libraries** before building anything bespoke. Either way the mod ships a
+  static game-knowledge database (card/relic/potion text by id) usable as
+  brain-side tools — never live state.
+- Potion addressing in intents: belt-slot + id cross-check (like cards) vs
+  id-only (slots shift as potions are used/discarded).
+- Push channel v1 scope: out-of-combat potions only, vs leaving the door open
+  (chat emotes, map suggestions to the host).
+- Push failure policy: illegal-when-drained pushes — silent drop + log, vs
+  bounce back to the brain as feedback.
+- Context breadth per view beyond SelfState (decision 3 — dedicated discussion).
+- Brain construction/config surface: when brains attach (lobby add / resume),
+  persona config (name, model, key source, system prompt).
 - Failure policy for a brain that errors or times out mid-decision (fall back
-  to trivial? park forever + watchdog? per-usecase?).
+  to trivial? park + watchdog? per-usecase?).
 - Token/cost telemetry (log per-call token counts into the event log?).
